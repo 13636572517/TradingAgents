@@ -1,45 +1,23 @@
-# Heavy dependencies (langchain, tool files) are imported lazily so that
-# build_instrument_context and get_language_instruction can be loaded and
-# unit-tested without requiring the full langchain stack to be installed.
+from langchain_core.messages import HumanMessage, RemoveMessage
 
-
-def __getattr__(name):
-    """Module-level lazy attribute lookup for re-exported tool names."""
-    _tool_map = {
-        "get_stock_data": (
-            "tradingagents.agents.utils.core_stock_tools", "get_stock_data"
-        ),
-        "get_indicators": (
-            "tradingagents.agents.utils.technical_indicators_tools", "get_indicators"
-        ),
-        "get_fundamentals": (
-            "tradingagents.agents.utils.fundamental_data_tools", "get_fundamentals"
-        ),
-        "get_balance_sheet": (
-            "tradingagents.agents.utils.fundamental_data_tools", "get_balance_sheet"
-        ),
-        "get_cashflow": (
-            "tradingagents.agents.utils.fundamental_data_tools", "get_cashflow"
-        ),
-        "get_income_statement": (
-            "tradingagents.agents.utils.fundamental_data_tools", "get_income_statement"
-        ),
-        "get_news": (
-            "tradingagents.agents.utils.news_data_tools", "get_news"
-        ),
-        "get_insider_transactions": (
-            "tradingagents.agents.utils.news_data_tools", "get_insider_transactions"
-        ),
-        "get_global_news": (
-            "tradingagents.agents.utils.news_data_tools", "get_global_news"
-        ),
-    }
-    if name in _tool_map:
-        import importlib
-        module_path, attr = _tool_map[name]
-        mod = importlib.import_module(module_path)
-        return getattr(mod, attr)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+# Import tools from separate utility files
+from tradingagents.agents.utils.core_stock_tools import (
+    get_stock_data
+)
+from tradingagents.agents.utils.technical_indicators_tools import (
+    get_indicators
+)
+from tradingagents.agents.utils.fundamental_data_tools import (
+    get_fundamentals,
+    get_balance_sheet,
+    get_cashflow,
+    get_income_statement
+)
+from tradingagents.agents.utils.news_data_tools import (
+    get_news,
+    get_insider_transactions,
+    get_global_news
+)
 
 
 def get_language_instruction() -> str:
@@ -105,7 +83,6 @@ def build_instrument_context(ticker: str, asset_type: str = "stock") -> str:
 def create_msg_delete():
     def delete_messages(state):
         """Clear messages and add placeholder for Anthropic compatibility"""
-        from langchain_core.messages import HumanMessage, RemoveMessage
         messages = state["messages"]
 
         # Remove all messages
