@@ -29,10 +29,84 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.dataflows.reddit import fetch_reddit_posts
 from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
+from tradingagents.dataflows.akshare_data import detect_cn_market, fetch_eastmoney_news_for_sentiment
 
 
 def _seven_days_back(trade_date: str) -> str:
     return (datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+
+
+def _build_cn_system_message(
+    *,
+    ticker: str,
+    market: str,
+    start_date: str,
+    end_date: str,
+    news_block: str,
+    em_block: str,
+) -> str:
+    """Assemble the sentiment-analyst system message for CN/HK markets."""
+    market_label = "A-share (沪深两市)" if market == "a_share" else "Hong Kong (港交所)"
+    market_notes = (
+        """
+**A-share Market Characteristics to consider:**
+- T+1 settlement: shares bought today cannot be sold until tomorrow
+- Daily price limit: ±10% (±5% for ST stocks) — extreme moves are capped
+- Retail-dominated: ~70% of trading volume from individual investors
+- Policy sensitivity: PBOC, CSRC, and government announcements have outsized impact
+- Northbound flow (北向资金): foreign institutional buying/selling is a key signal
+- Sector rotation driven by policy themes (e.g. tech self-sufficiency, green energy, consumption)
+"""
+        if market == "a_share"
+        else """
+**Hong Kong Market Characteristics to consider:**
+- T+2 settlement, no daily price limit
+- Dual influence: Chinese macro + global (USD, Fed) + local HK conditions
+- Southbound flow (南向资金): mainland Chinese investor buying is a key demand driver
+- H/A share premium: same company may trade at a discount vs A-share counterpart
+- Hang Seng Index composition and sector weights affect institutional flows
+"""
+    )
+
+    return f"""You are a financial market sentiment analyst covering {market_label}. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on two complementary data sources pre-collected for you.
+
+{market_notes}
+
+## Data Sources (pre-fetched, in this prompt)
+
+### Yahoo Finance News — past 7 days
+Institutional and international media framing. Fact-driven signal.
+
+<start_of_yahoo_news>
+{news_block}
+<end_of_yahoo_news>
+
+### Eastmoney (东方财富) News — most recent articles
+Chinese financial media. Primary retail and institutional CN sentiment signal.
+News titles may be in Chinese — read them as-is and incorporate their content into your analysis.
+
+<start_of_eastmoney_news>
+{em_block}
+<end_of_eastmoney_news>
+
+## How to analyze this data
+
+1. **Cross-source convergence/divergence**: Do Yahoo Finance and Eastmoney tell the same story? If they diverge, that gap is itself a signal.
+2. **Policy and regulatory themes**: For A-share especially, identify any government or regulator angle in the news.
+3. **Catalysts and risks**: Surface upcoming earnings, product launches, regulatory risks, macro events.
+4. **Data quality caveat**: If either source returned a `<no data>` placeholder, note this explicitly in your confidence assessment.
+5. **Past sentiment is not predictive**: Frame conclusions as signals to weigh alongside fundamentals and technicals.
+
+## Output
+
+Produce a sentiment report covering:
+1. **Overall sentiment direction** — Bullish / Bearish / Neutral / Mixed — with confidence note.
+2. **Source-by-source breakdown** with specific evidence.
+3. **Key narratives and divergences** across sources.
+4. **Catalysts and risks** surfaced by the data.
+5. **Markdown table** summarizing key sentiment signals, direction, source, and evidence.
+
+{get_language_instruction()}"""
 
 
 def create_sentiment_analyst(llm):
@@ -49,21 +123,31 @@ def create_sentiment_analyst(llm):
         start_date = _seven_days_back(end_date)
         instrument_context = build_instrument_context(ticker)
 
-        # Pre-fetch all three sources. Each fetcher degrades gracefully and
-        # returns a string (no exceptions surface from here), so the LLM
-        # always sees something — either real data or a clear placeholder.
-        news_block = get_news.func(ticker, start_date, end_date)
-        stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
-        reddit_block = fetch_reddit_posts(ticker)
+        market = detect_cn_market(ticker)
 
-        system_message = _build_system_message(
-            ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            news_block=news_block,
-            stocktwits_block=stocktwits_block,
-            reddit_block=reddit_block,
-        )
+        if market in ("a_share", "hk"):
+            news_block = get_news.func(ticker, start_date, end_date)
+            em_block = fetch_eastmoney_news_for_sentiment(ticker, limit=30)
+            system_message = _build_cn_system_message(
+                ticker=ticker,
+                market=market,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                em_block=em_block,
+            )
+        else:
+            news_block = get_news.func(ticker, start_date, end_date)
+            stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
+            reddit_block = fetch_reddit_posts(ticker)
+            system_message = _build_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                stocktwits_block=stocktwits_block,
+                reddit_block=reddit_block,
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -83,8 +167,6 @@ def create_sentiment_analyst(llm):
         prompt = prompt.partial(current_date=end_date)
         prompt = prompt.partial(instrument_context=instrument_context)
 
-        # No bind_tools — the data is already in the prompt; a single LLM
-        # call produces the report directly.
         chain = prompt | llm
         result = chain.invoke(state["messages"])
 
