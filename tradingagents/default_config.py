@@ -102,6 +102,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "tool_vendors": {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
     },
+    # Market-based vendor overrides — takes precedence over data_vendors and tool_vendors.
+    # Tickers whose suffix matches are automatically routed to the mapped vendor.
+    # HK (.HK) deliberately omitted — yfinance has good HK coverage.
+    "market_vendor_overrides": {
+        ".SS": "akshare",
+        ".SZ": "akshare",
+    },
     # Benchmark for alpha calculation in the reflection layer.
     # ``benchmark_ticker`` (when set) overrides the suffix map for all
     # tickers; leave it None to use ``benchmark_map`` for auto-detection
@@ -117,6 +124,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
         ".L":   "^FTSE",    # London (FTSE 100)
         ".TO":  "^GSPTSE",  # Toronto (TSX Composite)
         ".AX":  "^AXJO",    # Australia (ASX 200)
+        ".SS":  "000001.SS",    # Shanghai (上证综合指数)
+        ".SZ":  "399001.SZ",    # Shenzhen (深证成份指数)
         "":     "SPY",      # default for US-listed tickers (no suffix)
     },
 })
