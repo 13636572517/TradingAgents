@@ -1,4 +1,48 @@
+# docker-compose.yml
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  server:
+    build: .
+    command: uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+      - .:/app
+    depends_on:
+      - redis
+
+  celery:
+    build: .
+    command: celery -A server.celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+      - .:/app
+    depends_on:
+      - redis
+
+  web:
+    image: node:20-alpine
+    working_dir: /app/web
+    command: sh -c "npm install && npm run dev -- --host"
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+    depends_on:
+      - server
+
+  # Legacy CLI service preserved
   tradingagents:
     build: .
     env_file:
@@ -7,6 +51,8 @@ services:
       - tradingagents_data:/home/appuser/.tradingagents
     tty: true
     stdin_open: true
+    profiles:
+      - cli
 
   ollama:
     image: ollama/ollama:latest
@@ -15,21 +61,7 @@ services:
     profiles:
       - ollama
 
-  tradingagents-ollama:
-    build: .
-    env_file:
-      - .env
-    environment:
-      - LLM_PROVIDER=ollama
-    volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
-    depends_on:
-      - ollama
-    tty: true
-    stdin_open: true
-    profiles:
-      - ollama
-
 volumes:
   tradingagents_data:
   ollama_data:
+  redis_data:
