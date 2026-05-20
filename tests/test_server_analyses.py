@@ -5,6 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from unittest.mock import patch
+
 from server.database import Base, get_db
 from server.models import Analysis  # noqa: F401 — registers model with Base metadata
 
@@ -24,6 +26,14 @@ def setup_db():
     Base.metadata.create_all(bind=test_engine)
     yield
     Base.metadata.drop_all(bind=test_engine)
+
+
+@pytest.fixture(autouse=True)
+def mock_celery_delay():
+    """Prevent tests from connecting to Redis by no-oping run_analysis.delay."""
+    with patch("server.tasks.run_analysis") as mock_task:
+        mock_task.delay = lambda *a, **kw: None
+        yield mock_task
 
 
 @pytest.fixture
@@ -112,3 +122,18 @@ def test_notification_count_zero_when_all_seen(client):
     resp = client.get("/api/notifications/count")
     assert resp.status_code == 200
     assert resp.json()["unseen"] == 0
+
+
+def test_extract_decision_label_buy():
+    from server.tasks import _extract_decision_label
+    assert _extract_decision_label("Strong BUY recommendation") == "BUY"
+
+
+def test_extract_decision_label_sell():
+    from server.tasks import _extract_decision_label
+    assert _extract_decision_label("SELL — elevated risk") == "SELL"
+
+
+def test_extract_decision_label_fallback():
+    from server.tasks import _extract_decision_label
+    assert _extract_decision_label("unclear signal") == "HOLD"
