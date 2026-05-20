@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-border: #30363d;
+  --color-accent: #00bfff;
+  --color-buy: #22c55e;
+  --color-sell: #ef4444;
+  --color-hold: #fbbf24;
+}
+
+body {
+  background-color: #0d1117;
+  color: #cdd6f4;
+  font-family: "Inter", system-ui, sans-serif;
+}
