@@ -23,6 +23,16 @@ from .alpha_vantage import (
     get_global_news as get_alpha_vantage_global_news,
 )
 from .alpha_vantage_common import AlphaVantageRateLimitError
+from .akshare_data import (
+    AkShareError,
+    get_cn_stock_data,
+    get_cn_news,
+    get_cn_global_news,
+    get_cn_fundamentals,
+    get_cn_balance_sheet,
+    get_cn_cashflow,
+    get_cn_income_statement,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -63,6 +73,7 @@ TOOLS_CATEGORIES = {
 VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
+    "akshare",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -71,41 +82,50 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "akshare": get_cn_stock_data,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        # akshare not registered — falls back to yfinance automatically
     },
     # fundamental_data
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
+        "akshare": get_cn_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
+        "akshare": get_cn_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
+        "akshare": get_cn_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
+        "akshare": get_cn_income_statement,
     },
     # news_data
     "get_news": {
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
+        "akshare": get_cn_news,
     },
     "get_global_news": {
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
+        "akshare": get_cn_global_news,
     },
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
+        # akshare not registered — A-share insider disclosures are limited
     },
 }
 
@@ -116,31 +136,63 @@ def get_category_for_method(method: str) -> str:
             return category
     raise ValueError(f"Method '{method}' not found in any category")
 
-def get_vendor(category: str, method: str = None) -> str:
+def get_vendor(category: str, method: str = None, ticker_hint: str = None) -> str:
     """Get the configured vendor for a data category or specific tool method.
-    Tool-level configuration takes precedence over category-level.
+
+    Resolution order:
+    1. market_vendor_overrides — ticker-suffix-based auto-detection (.SS → akshare)
+    2. tool_vendors config — per-tool override
+    3. data_vendors config — per-category default
     """
     config = get_config()
 
-    # Check tool-level configuration first (if method provided)
+    # 1. Ticker-suffix-based auto-detection
+    if ticker_hint:
+        market_overrides = config.get("market_vendor_overrides", {})
+        ticker_upper = ticker_hint.upper()
+        for suffix, vendor in market_overrides.items():
+            if suffix and ticker_upper.endswith(suffix.upper()):
+                return vendor
+
+    # 2. Tool-level override
     if method:
         tool_vendors = config.get("tool_vendors", {})
         if method in tool_vendors:
             return tool_vendors[method]
 
-    # Fall back to category-level configuration
+    # 3. Category-level default
     return config.get("data_vendors", {}).get(category, "default")
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """Route method calls to appropriate vendor with fallback support.
+
+    Ticker-hint extraction:
+    - For ticker-first methods (get_stock_data, get_news, etc.): first arg is ticker
+    - For date-first methods (get_global_news): use config["current_ticker"] as hint
+    """
     category = get_category_for_method(method)
-    vendor_config = get_vendor(category, method)
-    primary_vendors = [v.strip() for v in vendor_config.split(',')]
+
+    # Extract ticker hint for market-based auto-detection
+    ticker_hint = None
+    if args and isinstance(args[0], str):
+        first_arg = args[0]
+        # Date strings look like YYYY-MM-DD
+        is_date = (
+            len(first_arg) == 10
+            and first_arg[4:5] == "-"
+            and first_arg[7:8] == "-"
+        )
+        if not is_date:
+            ticker_hint = first_arg
+        else:
+            ticker_hint = get_config().get("current_ticker")
+
+    vendor_config = get_vendor(category, method, ticker_hint=ticker_hint)
+    primary_vendors = [v.strip() for v in vendor_config.split(",")]
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
-    # Build fallback chain: primary vendors first, then remaining available vendors
     all_available_vendors = list(VENDOR_METHODS[method].keys())
     fallback_vendors = primary_vendors.copy()
     for vendor in all_available_vendors:
@@ -156,7 +208,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+        except (AlphaVantageRateLimitError, AkShareError):
+            continue  # Both trigger fallback to next vendor
 
     raise RuntimeError(f"No available vendor for '{method}'")
