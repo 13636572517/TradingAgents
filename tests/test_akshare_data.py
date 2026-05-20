@@ -44,3 +44,43 @@ def test_yf_to_short_code():
 def test_yf_to_hk_code():
     assert _yf_to_hk_code("0700.HK") == "00700"
     assert _yf_to_hk_code("9988.HK") == "09988"
+
+
+def _import_build_instrument_context():
+    """Load build_instrument_context directly from its source file.
+
+    This avoids triggering tradingagents/agents/__init__.py, which pulls in
+    langgraph and langchain_core — packages not installed in the lightweight
+    test environment used for unit tests.
+    """
+    import importlib.util
+    import pathlib
+
+    src = (
+        pathlib.Path(__file__).parent.parent
+        / "tradingagents" / "agents" / "utils" / "agent_utils.py"
+    )
+    spec = importlib.util.spec_from_file_location("agent_utils_direct", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.build_instrument_context
+
+
+def test_build_instrument_context_a_share_contains_t1():
+    build_instrument_context = _import_build_instrument_context()
+    context = build_instrument_context("600519.SS")
+    assert "T+1" in context
+    assert "CNY" in context
+
+
+def test_build_instrument_context_hk_contains_hkd():
+    build_instrument_context = _import_build_instrument_context()
+    context = build_instrument_context("0700.HK")
+    assert "HKD" in context or "Hong Kong" in context
+
+
+def test_build_instrument_context_us_unchanged():
+    build_instrument_context = _import_build_instrument_context()
+    context = build_instrument_context("AAPL")
+    assert "AAPL" in context
+    assert "T+1" not in context
