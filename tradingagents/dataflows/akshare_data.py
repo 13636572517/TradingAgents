@@ -16,7 +16,6 @@ import logging
 from datetime import datetime
 from typing import Annotated, Optional
 
-import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
@@ -75,7 +74,7 @@ def get_cn_stock_data(
     except ImportError:
         raise AkShareError("akshare is not installed. Run: pip install akshare")
     try:
-        ak_code = _yf_to_akshare_a_code(symbol)
+        ak_code = _yf_to_short_code(symbol)
         df = ak.stock_zh_a_hist(
             symbol=ak_code,
             period="daily",
@@ -139,7 +138,7 @@ def get_cn_news(
                     if not (start_dt <= pub_dt <= end_dt + relativedelta(days=1)):
                         continue
                 except (ValueError, TypeError):
-                    pass
+                    continue  # skip unparseable dates
 
             title = row.get("新闻标题", row.get("标题", "No title"))
             source = row.get("文章来源", row.get("来源", "Unknown"))
@@ -217,7 +216,7 @@ def get_cn_global_news(
             if pub_time:
                 try:
                     pub_dt = datetime.strptime(pub_time[:10], "%Y-%m-%d")
-                    if pub_dt > curr_dt + relativedelta(days=1):
+                    if not (start_dt <= pub_dt <= curr_dt + relativedelta(days=1)):
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -289,7 +288,10 @@ def get_cn_balance_sheet(
     freq: Annotated[str, "frequency: 'annual' or 'quarterly'"] = "quarterly",
     curr_date: Annotated[str, "current date in YYYY-MM-DD format"] = None,
 ) -> str:
-    """Get A-share balance sheet (资产负债表) from Sina Finance via AkShare."""
+    """Get A-share balance sheet (资产负债表) from Sina Finance via AkShare.
+
+    Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
+    """
     try:
         import akshare as ak
     except ImportError:
@@ -317,7 +319,10 @@ def get_cn_cashflow(
     freq: Annotated[str, "frequency: 'annual' or 'quarterly'"] = "quarterly",
     curr_date: Annotated[str, "current date in YYYY-MM-DD format"] = None,
 ) -> str:
-    """Get A-share cash flow statement (现金流量表) from Sina Finance via AkShare."""
+    """Get A-share cash flow statement (现金流量表) from Sina Finance via AkShare.
+
+    Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
+    """
     try:
         import akshare as ak
     except ImportError:
@@ -345,7 +350,10 @@ def get_cn_income_statement(
     freq: Annotated[str, "frequency: 'annual' or 'quarterly'"] = "quarterly",
     curr_date: Annotated[str, "current date in YYYY-MM-DD format"] = None,
 ) -> str:
-    """Get A-share income statement (利润表) from Sina Finance via AkShare."""
+    """Get A-share income statement (利润表) from Sina Finance via AkShare.
+
+    Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
+    """
     try:
         import akshare as ak
     except ImportError:
