@@ -1,10 +1,12 @@
 # server/routers/analyses.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.models import Analysis
 from server.schemas import AnalysisCreate, AnalysisOut, AnalysisListOut
+from server.events import analysis_event_stream
 
 router = APIRouter(prefix="/api/analyses", tags=["analyses"])
 
@@ -58,6 +60,21 @@ def get_analysis(analysis_id: str, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(status_code=404, detail="Analysis not found")
     return record
+
+
+@router.get("/{analysis_id}/stream")
+async def stream_analysis_progress(analysis_id: str, db: Session = Depends(get_db)):
+    record = db.get(Analysis, analysis_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return StreamingResponse(
+        analysis_event_stream(analysis_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/{analysis_id}", status_code=204)
