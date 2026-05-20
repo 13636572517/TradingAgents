@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from server.database import Base, get_db
+from server.models import Analysis  # noqa: F401 — registers model with Base metadata
 
 # Use in-memory SQLite for tests
 TEST_DB_URL = "sqlite://"
