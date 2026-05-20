@@ -26,6 +26,17 @@ for _mod in (
         sys.modules[_mod] = MagicMock()
 
 
+from tradingagents.dataflows.config import set_config
+from tradingagents.default_config import DEFAULT_CONFIG
+
+
+@pytest.fixture(autouse=True)
+def reset_config():
+    """Restore default config after each test to prevent state leaks."""
+    yield
+    set_config(DEFAULT_CONFIG.copy())
+
+
 def test_get_vendor_ss_returns_akshare():
     """Tickers with .SS suffix should route to akshare."""
     from tradingagents.dataflows.interface import get_vendor
@@ -93,6 +104,7 @@ def test_route_to_vendor_akshare_error_falls_back_to_yfinance():
     _iface.VENDOR_METHODS["get_stock_data"]["yfinance"] = mock_yf
     try:
         result = route_to_vendor("get_stock_data", "600519.SS", "2024-01-01", "2024-01-31")
+        mock_akshare.assert_called_once_with("600519.SS", "2024-01-01", "2024-01-31")
         assert result == "yfinance_data"
         mock_yf.assert_called_once()
     finally:
