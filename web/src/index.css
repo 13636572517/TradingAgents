@@ -15,3 +15,103 @@ body {
   color: #cdd6f4;
   font-family: "Inter", system-ui, sans-serif;
 }
+
+/* ── Report markdown content styles ─────────────────────────────────────── */
+.report-content {
+  color: #cdd6f4;
+  line-height: 1.75;
+  font-size: 0.9rem;
+}
+
+.report-content h1,
+.report-content h2,
+.report-content h3,
+.report-content h4 {
+  color: #ffffff;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.report-content h1 { font-size: 1.25rem; }
+.report-content h2 { font-size: 1.1rem; border-bottom: 1px solid #30363d; padding-bottom: 0.3em; }
+.report-content h3 { font-size: 1rem; color: #e2e8f0; }
+
+.report-content p { margin: 0.6em 0; }
+
+.report-content strong { color: #ffffff; font-weight: 600; }
+
+.report-content ul,
+.report-content ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.report-content li { margin: 0.25em 0; }
+
+.report-content blockquote {
+  border-left: 3px solid #00bfff;
+  padding-left: 1em;
+  color: #94a3b8;
+  margin: 0.75em 0;
+}
+
+.report-content hr {
+  border: none;
+  border-top: 1px solid #30363d;
+  margin: 1.25em 0;
+}
+
+.report-content code {
+  background: #1e2433;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  color: #7dd3fc;
+}
+
+.report-content pre {
+  background: #1e2433;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+/* ── Table styles ────────────────────────────────────────────────────────── */
+.report-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.85rem;
+}
+
+.report-content thead tr {
+  background-color: #1e2433;
+}
+
+.report-content th {
+  padding: 0.6em 1em;
+  text-align: left;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #30363d;
+  white-space: nowrap;
+}
+
+.report-content td {
+  padding: 0.55em 1em;
+  border-bottom: 1px solid #1e2433;
+  vertical-align: top;
+}
+
+.report-content tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.report-content tbody tr:last-child td {
+  border-bottom: none;
+}

@@ -258,7 +258,7 @@ def get_cn_fundamentals(
         raise AkShareError("akshare is not installed")
     try:
         short_code = _yf_to_short_code(ticker)
-        info_df = ak.stock_individual_info_em(stock=short_code)
+        info_df = ak.stock_individual_info_em(symbol=short_code)
         if info_df is None or info_df.empty:
             return f"No fundamentals data found for {ticker}"
 
