@@ -51,6 +51,15 @@ from .jq_data import (
     get_jq_income_statement,
     get_jq_cashflow,
 )
+from .baostock_data import (
+    BaoStockError,
+    get_bs_stock_data,
+    get_bs_indicators,
+    get_bs_fundamentals,
+    get_bs_balance_sheet,
+    get_bs_income_statement,
+    get_bs_cashflow,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -94,6 +103,7 @@ VENDOR_LIST = [
     "akshare",
     "futu",
     "joinquant",
+    "baostock",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -105,6 +115,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_stock_data,
         "futu": get_futu_stock_data,
         "joinquant": get_jq_stock_data,
+        "baostock": get_bs_stock_data,
     },
     # technical_indicators
     "get_indicators": {
@@ -112,6 +123,7 @@ VENDOR_METHODS = {
         "yfinance": get_stock_stats_indicators_window,
         "akshare": get_cn_indicators,
         "joinquant": get_jq_indicators,
+        "baostock": get_bs_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
@@ -120,6 +132,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_fundamentals,
         "futu": get_futu_fundamentals,
         "joinquant": get_jq_fundamentals,
+        "baostock": get_bs_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
@@ -127,6 +140,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_balance_sheet,
         "futu": get_futu_balance_sheet,
         "joinquant": get_jq_balance_sheet,
+        "baostock": get_bs_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
@@ -134,6 +148,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_cashflow,
         "futu": get_futu_cashflow,
         "joinquant": get_jq_cashflow,
+        "baostock": get_bs_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
@@ -141,6 +156,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_income_statement,
         "futu": get_futu_income_statement,
         "joinquant": get_jq_income_statement,
+        "baostock": get_bs_income_statement,
     },
     # news_data
     "get_news": {
@@ -250,7 +266,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError):
+        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError, BaoStockError):
             continue  # All trigger fallback to next vendor
 
     raise RuntimeError(f"No available vendor for '{method}'")
