@@ -1,6 +1,7 @@
 from typing import Annotated
 from typing_extensions import TypedDict
 from langgraph.graph import MessagesState
+from langgraph.graph.message import AnyMessage, add_messages  # noqa: F401 — needed by MessagesState type hints on Python 3.9
 
 
 # Researcher team state
