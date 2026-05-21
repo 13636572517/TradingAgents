@@ -72,11 +72,20 @@ def build_instrument_context(ticker: str, asset_type: str = "stock") -> str:
     else:
         market_hint = ""
 
+    no_hallucination = (
+        " CRITICAL: You MUST use only data returned by tool calls. "
+        "If a tool returns empty data, an error, or 'No data found', you MUST explicitly state "
+        "'Data unavailable for this ticker' in your report — do NOT substitute with knowledge "
+        "from training data or invent figures. The ticker symbol in your report must match "
+        f"exactly: `{ticker}`. Never replace it with a different ticker or security name."
+    )
+
     return (
         f"The instrument to analyze is `{ticker}`. "
         "Use this exact ticker in every tool call, report, and recommendation, "
         "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`, `.SS`, `.SZ`, `-USD`)."
         + market_hint
+        + no_hallucination
     )
 
 

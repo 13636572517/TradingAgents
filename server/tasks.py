@@ -109,10 +109,13 @@ def _apply_llm_config(config: dict, llm_config: dict) -> dict:
 @celery_app.task(bind=True, name="server.tasks.run_analysis")
 def run_analysis(self, analysis_id: str):
     """Run TradingAgentsGraph and write progress to Analysis.stage + stage_detail."""
-    # Remove SOCKS/HTTP proxy env vars that would block AkShare/yfinance direct calls
+    # Bypass system and env-var proxies so AkShare/yfinance can reach data sources directly.
+    # NO_PROXY=* tells requests/urllib to skip ALL proxy settings (including macOS system proxy).
     for proxy_var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
                       "ALL_PROXY", "all_proxy", "SOCKS_PROXY", "socks_proxy"):
         os.environ.pop(proxy_var, None)
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
 
     db = SessionLocal()
     try:
