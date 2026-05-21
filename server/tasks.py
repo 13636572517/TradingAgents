@@ -144,11 +144,31 @@ def run_analysis(self, analysis_id: str):
         )
         args = ta.propagator.get_graph_args()
 
-        final_state = {}
+        # Fields to save incrementally (as each analyst/node completes)
+        _PARTIAL_FIELDS = [
+            "market_report", "sentiment_report",
+            "news_report", "fundamentals_report",
+            "investment_plan", "trader_investment_plan",
+        ]
+
+        final_state: dict = {}
+        result_cache: dict = {}
+
         for chunk in ta.graph.stream(init_state, **args):
             final_state.update(chunk)
 
-            # Detect stage + detail from state fields (field-based, not node-name-based)
+            # Save any newly-appeared partial results immediately
+            new_fields = {
+                f: final_state[f]
+                for f in _PARTIAL_FIELDS
+                if final_state.get(f) and f not in result_cache
+            }
+            if new_fields:
+                result_cache.update(new_fields)
+                record.result = dict(result_cache)
+                db.commit()
+
+            # Update stage + detail
             new_stage, detail = _detect_progress(final_state, record)
             _update_progress(db, record, stage=new_stage, detail=detail)
 

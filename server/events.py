@@ -51,6 +51,7 @@ async def analysis_event_stream(analysis_id: str) -> AsyncGenerator[str, None]:
                     "detail":   detail,
                     "progress": _STAGE_PROGRESS.get(stage, 0),
                     "status":   record.status,
+                    "refresh":  True,   # tell frontend to re-fetch analysis data
                 }
                 if stage == "complete":
                     payload["decision"] = record.decision
