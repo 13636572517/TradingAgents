@@ -21,7 +21,8 @@ class Analysis(Base):
     error        = Column(Text)
     llm_config   = Column(JSON)                          # snapshot of LLM settings at submit time
     stage_detail = Column(Text)                          # human-readable current activity
-    usage        = Column(JSON)                          # {quick:{calls,tokens_in,...}, deep:{...}, total_cost_cny}
+    usage          = Column(JSON)                        # {quick:{calls,tokens_in,...}, deep:{...}, total_cost_cny}
+    celery_task_id = Column(Text)                        # Celery task ID for revoke/stop
     created_at   = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     seen         = Column(Boolean, default=True)         # False triggers sidebar badge

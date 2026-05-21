@@ -56,14 +56,28 @@ function AnalysisWorkspace({
   analysis,
   progress,
   isRunning,
+  onStopped,
 }: {
   analysis: Analysis
   progress: ProgressEvent | null
   isRunning: boolean
+  onStopped: () => void
 }) {
   const result = analysis.result ?? {}
   const selectedAnalysts = analysis.analysts ?? []
   const elapsed = useElapsed(isRunning)
+  const [stopping, setStopping] = useState(false)
+
+  const handleStop = async () => {
+    if (stopping) return
+    setStopping(true)
+    try {
+      await api.stopAnalysis(analysis.id)
+      onStopped()
+    } catch {
+      setStopping(false)
+    }
+  }
 
   // All available items (filtered by selected analysts)
   const allItems = TREE.flatMap((g) =>
@@ -112,6 +126,15 @@ function AnalysisWorkspace({
           <span className="text-xs text-gray-400 ml-2 hidden md:block truncate max-w-xs">
             · {displayDetail}
           </span>
+        )}
+        {isRunning && (
+          <button
+            onClick={handleStop}
+            disabled={stopping}
+            className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+          >
+            {stopping ? "停止中…" : "■ 停止分析"}
+          </button>
         )}
       </div>
 
@@ -300,6 +323,18 @@ export default function Report() {
 
   const isRunning = displayStatus === "running" || displayStatus === "pending"
 
+  const handleStopped = () => {
+    esRef.current?.close()
+    api.getAnalysis(id!).then(setAnalysis)
+  }
+
   // Unified two-panel view for both running and complete states
-  return <AnalysisWorkspace analysis={analysis} progress={progress} isRunning={isRunning} />
+  return (
+    <AnalysisWorkspace
+      analysis={analysis}
+      progress={progress}
+      isRunning={isRunning}
+      onStopped={handleStopped}
+    />
+  )
 }

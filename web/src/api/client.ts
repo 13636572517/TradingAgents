@@ -21,6 +21,7 @@ export const api = {
     http.get<Analysis>(`/analyses/${id}`).then((r) => r.data),
 
   deleteAnalysis: (id: string) => http.delete(`/analyses/${id}`),
+  stopAnalysis: (id: string) => http.post(`/analyses/${id}/stop`),
 
   getNotificationCount: () =>
     http

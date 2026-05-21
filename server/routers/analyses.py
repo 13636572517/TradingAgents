@@ -41,11 +41,35 @@ def create_analysis(
     db.commit()
     db.refresh(record)
 
-    # Dispatch Celery task after committing so the ID exists in DB
+    # Dispatch Celery task and store task ID for later revocation
     from server.tasks import run_analysis
-    run_analysis.delay(record.id)
+    task = run_analysis.delay(record.id)
+    record.celery_task_id = task.id
+    db.commit()
 
     return record
+
+
+@router.post("/{analysis_id}/stop", status_code=204)
+def stop_analysis(analysis_id: str, db: Session = Depends(get_db)):
+    """Terminate a running analysis and mark it as stopped."""
+    record = db.get(Analysis, analysis_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if record.status not in ("pending", "running"):
+        raise HTTPException(status_code=400, detail="Analysis is not running")
+
+    # Revoke the Celery task (terminate=True sends SIGTERM to the worker process)
+    if record.celery_task_id:
+        from server.celery_app import celery_app
+        celery_app.control.revoke(record.celery_task_id, terminate=True, signal="SIGTERM")
+
+    record.status = "failed"
+    record.stage = "failed"
+    record.stage_detail = "用户手动停止"
+    record.error = "Manually stopped by user"
+    record.seen = True
+    db.commit()
 
 
 @router.get("", response_model=AnalysisListOut)
