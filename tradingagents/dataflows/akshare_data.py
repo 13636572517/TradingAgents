@@ -80,7 +80,7 @@ def get_cn_stock_data(
             period="daily",
             start_date=start_date.replace("-", ""),
             end_date=end_date.replace("-", ""),
-            adjust="hfq",
+            adjust="qfq",   # 前复权: keeps current price unchanged, adjusts historical prices back
         )
         if df is None or df.empty:
             return f"No data found for {symbol} between {start_date} and {end_date}"
@@ -96,7 +96,7 @@ def get_cn_stock_data(
         header = (
             f"# A-share stock data for {symbol.upper()} from {start_date} to {end_date}\n"
             f"# Total records: {len(df)}\n"
-            f"# Currency: CNY | Adjusted: post-dividend (后复权)\n"
+            f"# Currency: CNY | Adjusted: forward-split-adjusted (前复权, current price preserved)\n"
             f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         )
         return header + df.to_csv(index=False)
