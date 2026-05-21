@@ -1,6 +1,6 @@
 // web/src/api/client.ts
 import axios from "axios"
-import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate } from "../types"
+import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate, ModelsResponse, Provider, TestResult } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
 
@@ -32,6 +32,10 @@ export const api = {
   getSettings: () => http.get<Settings>("/settings").then((r) => r.data),
   saveSettings: (payload: SettingsUpdate) =>
     http.post<Settings>("/settings", payload).then((r) => r.data),
+  getModels: (provider: string) =>
+    http.get<ModelsResponse>("/settings/models", { params: { provider } }).then((r) => r.data),
+  getProviders: () => http.get<Provider[]>("/settings/providers").then((r) => r.data),
+  testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
 }
 
 export function openProgressStream(

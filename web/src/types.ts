@@ -55,3 +55,28 @@ export interface SettingsUpdate {
   quick_model: string
   backend_url?: string
 }
+
+export interface ModelOption {
+  label: string
+  value: string
+}
+
+export interface ModelsResponse {
+  quick: ModelOption[]
+  deep: ModelOption[]
+}
+
+export interface Provider {
+  value: string
+  label: string
+  api_key_label: string
+}
+
+export interface TestResult {
+  success: boolean
+  latency_ms?: number
+  model?: string
+  provider?: string
+  response_preview?: string
+  error?: string
+}
