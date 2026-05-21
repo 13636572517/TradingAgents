@@ -60,6 +60,12 @@ from .baostock_data import (
     get_bs_income_statement,
     get_bs_cashflow,
 )
+from .mairui_data import (
+    MaiRuiError,
+    get_mr_stock_data,
+    get_mr_indicators,
+    get_mr_fundamentals,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -116,6 +122,7 @@ VENDOR_METHODS = {
         "futu": get_futu_stock_data,
         "joinquant": get_jq_stock_data,
         "baostock": get_bs_stock_data,
+        "mairui": get_mr_stock_data,
     },
     # technical_indicators
     "get_indicators": {
@@ -124,6 +131,7 @@ VENDOR_METHODS = {
         "akshare": get_cn_indicators,
         "joinquant": get_jq_indicators,
         "baostock": get_bs_indicators,
+        "mairui": get_mr_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
@@ -133,6 +141,7 @@ VENDOR_METHODS = {
         "futu": get_futu_fundamentals,
         "joinquant": get_jq_fundamentals,
         "baostock": get_bs_fundamentals,
+        "mairui": get_mr_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
@@ -266,7 +275,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError, BaoStockError):
+        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError, BaoStockError, MaiRuiError):
             continue  # All trigger fallback to next vendor
 
     raise RuntimeError(f"No available vendor for '{method}'")
