@@ -8,6 +8,7 @@ export interface Analysis {
   depth: number
   status: "pending" | "running" | "complete" | "failed"
   stage: string
+  stage_detail: string | null
   result: AnalysisResult | null
   decision: "BUY" | "HOLD" | "SELL" | null
   error: string | null
@@ -34,6 +35,7 @@ export interface AnalysisListResponse {
 export interface ProgressEvent {
   stage: string
   label: string
+  detail?: string
   progress: number
   status: string
   decision?: string

@@ -20,6 +20,7 @@ class Analysis(Base):
     decision     = Column(String(10))                    # BUY|HOLD|SELL
     error        = Column(Text)
     llm_config   = Column(JSON)                          # snapshot of LLM settings at submit time
+    stage_detail = Column(Text)                          # human-readable current activity
     created_at   = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     seen         = Column(Boolean, default=True)         # False triggers sidebar badge

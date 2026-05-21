@@ -36,9 +36,16 @@ export default function Report() {
 
   const displayStatus = progress?.status ?? analysis.status
   const displayStage = progress?.stage ?? analysis.stage
+  const displayDetail = progress?.detail ?? analysis.stage_detail
 
   if (displayStatus === "running" || displayStatus === "pending") {
-    return <ProgressTimeline stage={displayStage} status={displayStatus} />
+    return (
+      <ProgressTimeline
+        stage={displayStage}
+        status={displayStatus}
+        detail={displayDetail}
+      />
+    )
   }
 
   if (displayStatus === "failed") {
