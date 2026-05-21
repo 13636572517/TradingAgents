@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm"
 import { api, openProgressStream } from "../api/client"
 import type { Analysis, ProgressEvent } from "../types"
 
+
 // ── Section tree definition ───────────────────────────────────────────────────
 const TREE = [
   {
@@ -165,6 +166,34 @@ function AnalysisWorkspace({
               </div>
             )
           })}
+
+          {/* Usage card (shown when complete) */}
+          {!isRunning && analysis.usage && (
+            <div className="border-t border-border pt-3 px-3 pb-2">
+              <div className="text-xs text-gray-500 mb-2">本次用量</div>
+              <div className="space-y-1.5 text-xs">
+                {(["quick", "deep"] as const).map((role) => {
+                  const s = analysis.usage![role]
+                  return (
+                    <div key={role} className="flex justify-between text-gray-400">
+                      <span>{role === "quick" ? "快速" : "深度"} {s.calls}次</span>
+                      <span className="text-gray-500 font-mono">
+                        {s.cost_cny > 0 ? `¥${s.cost_cny.toFixed(4)}` : "-"}
+                      </span>
+                    </div>
+                  )
+                })}
+                <div className="flex justify-between text-white border-t border-border pt-1">
+                  <span>合计</span>
+                  <span className="font-mono">
+                    {analysis.usage.total_cost_cny > 0
+                      ? `¥${analysis.usage.total_cost_cny.toFixed(4)}`
+                      : "-"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Progress timeline mini view */}
           {isRunning && (

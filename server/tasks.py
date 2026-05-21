@@ -141,7 +141,18 @@ def run_analysis(self, analysis_id: str):
         record.status = "running"
         db.commit()
 
-        ta = TradingAgentsGraph(debug=True, config=config)
+        # Set up combined usage tracker — routes events to quick/deep by model name
+        from server.usage import CombinedUsageTracker
+        usage_tracker = CombinedUsageTracker(
+            quick_model=config["quick_think_llm"],
+            deep_model=config["deep_think_llm"],
+        )
+
+        ta = TradingAgentsGraph(
+            debug=True,
+            config=config,
+            callbacks=[usage_tracker],
+        )
         init_state = ta.propagator.create_initial_state(
             record.ticker, record.trade_date, asset_type="stock", past_context=""
         )
@@ -183,14 +194,15 @@ def run_analysis(self, analysis_id: str):
         record.stage_detail = "分析完成"
         record.decision = decision
         record.result = {
-            "market_report":        final_state.get("market_report"),
-            "sentiment_report":     final_state.get("sentiment_report"),
-            "news_report":          final_state.get("news_report"),
-            "fundamentals_report":  final_state.get("fundamentals_report"),
-            "investment_plan":      final_state.get("investment_plan"),
+            "market_report":          final_state.get("market_report"),
+            "sentiment_report":       final_state.get("sentiment_report"),
+            "news_report":            final_state.get("news_report"),
+            "fundamentals_report":    final_state.get("fundamentals_report"),
+            "investment_plan":        final_state.get("investment_plan"),
             "trader_investment_plan": final_state.get("trader_investment_plan"),
-            "final_trade_decision": final_state.get("final_trade_decision"),
+            "final_trade_decision":   final_state.get("final_trade_decision"),
         }
+        record.usage = usage_tracker.collect()
         record.completed_at = datetime.utcnow()
         record.seen = False
         db.commit()

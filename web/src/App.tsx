@@ -5,6 +5,7 @@ import NewAnalysis from "./pages/NewAnalysis"
 import History from "./pages/History"
 import Report from "./pages/Report"
 import SettingsPage from "./pages/Settings"
+import StatsPage from "./pages/StatsPage"
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/history" element={<History />} />
             <Route path="/report/:id" element={<Report />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/stats"    element={<StatsPage />} />
           </Routes>
         </main>
       </div>

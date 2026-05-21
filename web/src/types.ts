@@ -9,6 +9,7 @@ export interface Analysis {
   status: "pending" | "running" | "complete" | "failed"
   stage: string
   stage_detail: string | null
+  usage: UsageStats | null
   result: AnalysisResult | null
   decision: "BUY" | "HOLD" | "SELL" | null
   error: string | null
@@ -72,6 +73,30 @@ export interface Provider {
   value: string
   label: string
   api_key_label: string
+}
+
+export interface UsageSlot {
+  model: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  tool_calls: number
+  cost_cny: number
+}
+
+export interface UsageStats {
+  quick: UsageSlot
+  deep: UsageSlot
+  total_cost_cny: number
+}
+
+export interface AggregateStats {
+  total_analyses: number
+  completed_analyses: number
+  quick: UsageSlot
+  deep: UsageSlot
+  total_cost_cny: number
+  by_date: Record<string, { cost_cny: number; analyses: number }>
 }
 
 export interface TestResult {

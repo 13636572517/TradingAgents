@@ -107,12 +107,19 @@ function AnalysisCard({
         ))}
       </div>
 
-      {/* Created time */}
-      <div className="text-xs text-gray-600">
-        {new Date(analysis.created_at).toLocaleString("zh-CN", {
-          month: "numeric", day: "numeric",
-          hour: "2-digit", minute: "2-digit",
-        })}
+      {/* Footer: time + cost */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-600">
+          {new Date(analysis.created_at).toLocaleString("zh-CN", {
+            month: "numeric", day: "numeric",
+            hour: "2-digit", minute: "2-digit",
+          })}
+        </span>
+        {analysis.usage?.total_cost_cny != null && analysis.usage.total_cost_cny > 0 && (
+          <span className="text-xs font-mono text-gray-400 bg-bg border border-border rounded px-1.5 py-0.5">
+            ¥{analysis.usage.total_cost_cny.toFixed(4)}
+          </span>
+        )}
       </div>
     </div>
   )

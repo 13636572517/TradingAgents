@@ -28,6 +28,7 @@ class AnalysisOut(BaseModel):
     completed_at: Optional[datetime]
     seen: bool
     stage_detail: Optional[str] = None
+    usage: Optional[Any] = None
 
     model_config = {"from_attributes": True}
 
