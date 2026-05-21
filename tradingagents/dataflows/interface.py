@@ -32,6 +32,7 @@ from .akshare_data import (
     get_cn_balance_sheet,
     get_cn_cashflow,
     get_cn_income_statement,
+    get_cn_indicators,
 )
 from .futu_data import (
     FutuError,
@@ -98,7 +99,7 @@ VENDOR_METHODS = {
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
-        # akshare not registered — falls back to yfinance automatically
+        "akshare": get_cn_indicators,   # AkShare OHLCV + stockstats for .SS/.SZ
     },
     # fundamental_data
     "get_fundamentals": {

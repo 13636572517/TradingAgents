@@ -245,6 +245,84 @@ def get_cn_global_news(
         raise AkShareError(f"AkShare global news failed: {e}") from e
 
 
+# ── A-share technical indicators (computed via stockstats on AkShare OHLCV) ───
+
+def get_cn_indicators(
+    symbol: Annotated[str, "ticker in Yahoo Finance format e.g. 600519.SS"],
+    indicator: Annotated[str, "technical indicator name, e.g. close_50_sma, rsi, macd"],
+    curr_date: Annotated[str, "current trading date YYYY-MM-DD"],
+    look_back_days: Annotated[int, "number of calendar days to look back"] = 60,
+) -> str:
+    """Compute technical indicators for A-share stocks using AkShare OHLCV + stockstats.
+
+    Fetches ~1 year of daily OHLCV from AkShare (前复权, qfq), then uses stockstats
+    to compute the same indicators supported by the yfinance path (SMA, EMA, MACD,
+    RSI, Bollinger Bands, ATR, etc.).
+    """
+    try:
+        import akshare as ak
+        import pandas as pd
+        from stockstats import wrap
+        from dateutil.relativedelta import relativedelta as rdelta
+    except ImportError as e:
+        raise AkShareError(f"Missing dependency: {e}")
+
+    try:
+        short_code = _yf_to_short_code(symbol)
+        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+
+        # Use Sina Finance (stable, different endpoint from Eastmoney's rate-limited API)
+        suffix = symbol.upper().rsplit(".", 1)[-1] if "." in symbol else "SS"
+        sina_symbol = ("sh" if suffix == "SS" else "sz") + short_code
+
+        df = ak.stock_zh_a_daily(symbol=sina_symbol, adjust="qfq")
+        if df is None or df.empty:
+            raise AkShareError(f"No OHLCV data for {symbol}")
+
+        # stock_zh_a_daily already returns lowercase columns: date, open, high, low, close, volume
+        # stockstats needs these lowercase columns
+        required = {"open", "high", "low", "close", "volume"}
+        if not required.issubset(set(df.columns)):
+            raise AkShareError(f"Missing OHLCV columns: {df.columns.tolist()}")
+
+        # Parse date and filter to <= curr_date
+        df["date"] = pd.to_datetime(df["date"])
+        df = df[df["date"] <= pd.Timestamp(curr_dt)].copy()
+        df = df.sort_values("date").reset_index(drop=True)
+        df["Date"] = df["date"].dt.strftime("%Y-%m-%d")
+
+        # Compute indicator via stockstats
+        stock = wrap(df)
+        stock[indicator]  # triggers calculation
+
+        # Build result dict {date_str → value}
+        result_dict = {}
+        for _, row in stock.iterrows():
+            date_str = row["Date"]
+            val = row.get(indicator)
+            result_dict[date_str] = "N/A" if pd.isna(val) else str(round(float(val), 4))
+
+        # Generate the requested look_back_days window
+        before = curr_dt - rdelta(days=look_back_days)
+        lines = []
+        d = curr_dt
+        while d >= before:
+            ds = d.strftime("%Y-%m-%d")
+            lines.append(f"{ds}: {result_dict.get(ds, 'N/A: Not a trading day')}")
+            d -= rdelta(days=1)
+
+        return (
+            f"## {indicator} values from {before.strftime('%Y-%m-%d')} to {curr_date}:\n\n"
+            + "\n".join(lines)
+        )
+
+    except AkShareError:
+        raise
+    except Exception as e:
+        logger.warning("get_cn_indicators failed for %s %s: %s", symbol, indicator, e)
+        raise AkShareError(f"AkShare indicator {indicator} failed for {symbol}: {e}") from e
+
+
 # ── A-share fundamentals ───────────────────────────────────────────────────────
 
 def get_cn_fundamentals(
