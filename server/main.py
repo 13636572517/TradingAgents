@@ -30,6 +30,16 @@ app.include_router(stats_router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Pre-warm the stock search cache in a background thread so the first
+    # search request returns instantly instead of waiting 8+ seconds.
+    import threading
+    def _warmup():
+        try:
+            from server.routers.search import _load_securities
+            _load_securities()
+        except Exception:
+            pass  # non-critical, search still works on first request
+    threading.Thread(target=_warmup, daemon=True).start()
 
 
 # Serve React build in production (web/dist must exist)

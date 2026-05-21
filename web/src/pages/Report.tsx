@@ -316,7 +316,7 @@ export default function Report() {
       <div className="p-10 text-center">
         <p className="text-red-400 text-lg mb-2">分析失败</p>
         <p className="text-gray-400 text-sm mb-4">{analysis.error ?? "未知错误"}</p>
-        <button onClick={() => navigate("/new")} className="text-accent hover:underline text-sm">
+        <button onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis?.ticker ?? "")}`)} className="text-accent hover:underline text-sm">
           重新分析 →
         </button>
       </div>
@@ -339,7 +339,7 @@ export default function Report() {
           <span className="text-hold font-semibold">■ 已手动停止</span>
           <span className="text-gray-400">以下为已完成的部分内容，未完成的分析师报告不可用</span>
           <button
-            onClick={() => navigate("/new")}
+            onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis.ticker)}`)}
             className="ml-auto text-xs text-accent hover:underline"
           >
             重新分析 →

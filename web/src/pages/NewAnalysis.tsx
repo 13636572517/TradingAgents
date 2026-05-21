@@ -1,6 +1,6 @@
 // web/src/pages/NewAnalysis.tsx
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { api } from "../api/client"
 import TickerInput from "../components/TickerInput"
 
@@ -19,7 +19,8 @@ const DEPTH = [
 
 export default function NewAnalysis() {
   const navigate = useNavigate()
-  const [ticker, setTicker] = useState("")
+  const [searchParams] = useSearchParams()
+  const [ticker, setTicker] = useState(searchParams.get("ticker") ?? "")
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10))
   const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(ANALYSTS.map((a) => a.key))
   const [depth, setDepth] = useState(1)
