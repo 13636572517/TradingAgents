@@ -82,17 +82,7 @@ def get_futu_stock_data(
             start=start_date,
             end=end_date,
             ktype=ft.KLType.K_DAY,
-            autype=ft.AuType.QFQ,   # 前复权
-            fields=[
-                ft.KL_FIELD.DATE_TIME,
-                ft.KL_FIELD.OPEN,
-                ft.KL_FIELD.HIGH,
-                ft.KL_FIELD.LOW,
-                ft.KL_FIELD.CLOSE,
-                ft.KL_FIELD.VOLUME,
-                ft.KL_FIELD.TURNOVER,
-                ft.KL_FIELD.CHANGE_RATE,
-            ],
+            autype=ft.AuType.QFQ,   # 前复权（forward-adjusted）
         )
         if ret != ft.RET_OK:
             raise FutuError(f"Futu get_history_kline failed for {symbol}: {df}")
@@ -136,11 +126,13 @@ def get_futu_snapshot(symbol: str) -> str:
         return (
             f"# Market Snapshot for {symbol.upper()}\n"
             f"Last Price: {row.get('last_price', 'N/A')}\n"
-            f"Change: {row.get('change_val', 'N/A')} ({row.get('change_rate', 'N/A')}%)\n"
+            f"Change: ({row.get('change_rate', 'N/A')}%)\n"
             f"Volume: {row.get('volume', 'N/A')}\n"
-            f"Market Cap: {row.get('market_val', 'N/A')}\n"
-            f"52W High: {row.get('high_52weeks_price', 'N/A')}\n"
-            f"52W Low:  {row.get('low_52weeks_price', 'N/A')}\n"
+            f"Market Cap: {row.get('circular_market_val', 'N/A')}\n"
+            f"P/E: {row.get('pe_ratio', 'N/A')}\n"
+            f"P/B: {row.get('pb_ratio', 'N/A')}\n"
+            f"52W High: {row.get('highest52weeks_price', 'N/A')}\n"
+            f"52W Low:  {row.get('lowest52weeks_price', 'N/A')}\n"
         )
     except FutuError:
         raise
@@ -168,11 +160,16 @@ def get_futu_fundamentals(
         if ret == ft.RET_OK and df is not None and not df.empty:
             row = df.iloc[0]
             for field, label in [
-                ("last_price", "Price"), ("pe_ratio", "P/E Ratio"),
-                ("pb_ratio", "P/B Ratio"), ("market_val", "Market Cap"),
-                ("eps", "EPS"), ("dividend_ttm", "Dividend TTM"),
-                ("net_profit_growth_rate", "Net Profit Growth Rate"),
-                ("revenue_growth_rate", "Revenue Growth Rate"),
+                ("last_price", "Price"),
+                ("pe_ratio", "P/E Ratio"),
+                ("pe_ttm_ratio", "P/E TTM"),
+                ("pb_ratio", "P/B Ratio"),
+                ("circular_market_val", "Market Cap"),
+                ("earning_per_share", "EPS"),
+                ("dividend_ttm", "Dividend TTM"),
+                ("dividend_ratio_ttm", "Dividend Yield TTM"),
+                ("highest52weeks_price", "52W High"),
+                ("lowest52weeks_price", "52W Low"),
             ]:
                 val = row.get(field, "N/A")
                 if str(val).lower() not in ("nan", "none", "n/a", ""):
@@ -187,28 +184,32 @@ def get_futu_fundamentals(
         ctx.close()
 
 
+def _get_futu_statements(ticker: str, label: str) -> str:
+    """Shared helper: fetch all financial statements via get_financials_statements."""
+    import futu as ft
+    ctx = _get_quote_ctx()
+    try:
+        futu_code = _to_futu_code(ticker)
+        ret, data = ctx.get_financials_statements(code=futu_code)
+        if ret != ft.RET_OK or not data:
+            raise FutuError(f"Futu {label} failed for {ticker}: {data}")
+        # data is a protobuf object — convert to string representation
+        return f"# {label} for {ticker.upper()} (Futu)\n\n{str(data)[:3000]}"
+    except FutuError:
+        raise
+    except Exception as e:
+        raise FutuError(f"Futu {label} failed for {ticker}: {e}") from e
+    finally:
+        ctx.close()
+
+
 def get_futu_income_statement(
     ticker: Annotated[str, "ticker in Yahoo Finance format"],
     freq: str = "annual",
     curr_date: str = None,
 ) -> str:
     """Get income statement via Futu financial data."""
-    import futu as ft
-    ctx = _get_quote_ctx()
-    try:
-        futu_code = _to_futu_code(ticker)
-        period = ft.RelativePosition.ANNUAL if freq == "annual" else ft.RelativePosition.QUARTER
-        ret, df = ctx.get_income_statement(code=futu_code, start="", end="", pdl_period_type=period)
-        if ret != ft.RET_OK or df is None or df.empty:
-            raise FutuError(f"Futu income statement failed for {ticker}: {df}")
-        header = f"# Income Statement for {ticker.upper()} (Futu)\n\n"
-        return header + df.head(8).to_csv(index=False)
-    except FutuError:
-        raise
-    except Exception as e:
-        raise FutuError(f"Futu income statement failed for {ticker}: {e}") from e
-    finally:
-        ctx.close()
+    return _get_futu_statements(ticker, "Income Statement")
 
 
 def get_futu_balance_sheet(
@@ -217,22 +218,7 @@ def get_futu_balance_sheet(
     curr_date: str = None,
 ) -> str:
     """Get balance sheet via Futu financial data."""
-    import futu as ft
-    ctx = _get_quote_ctx()
-    try:
-        futu_code = _to_futu_code(ticker)
-        period = ft.RelativePosition.ANNUAL if freq == "annual" else ft.RelativePosition.QUARTER
-        ret, df = ctx.get_balance_sheet(code=futu_code, start="", end="", pdl_period_type=period)
-        if ret != ft.RET_OK or df is None or df.empty:
-            raise FutuError(f"Futu balance sheet failed for {ticker}: {df}")
-        header = f"# Balance Sheet for {ticker.upper()} (Futu)\n\n"
-        return header + df.head(8).to_csv(index=False)
-    except FutuError:
-        raise
-    except Exception as e:
-        raise FutuError(f"Futu balance sheet failed for {ticker}: {e}") from e
-    finally:
-        ctx.close()
+    return _get_futu_statements(ticker, "Balance Sheet")
 
 
 def get_futu_cashflow(
@@ -241,22 +227,7 @@ def get_futu_cashflow(
     curr_date: str = None,
 ) -> str:
     """Get cash flow statement via Futu financial data."""
-    import futu as ft
-    ctx = _get_quote_ctx()
-    try:
-        futu_code = _to_futu_code(ticker)
-        period = ft.RelativePosition.ANNUAL if freq == "annual" else ft.RelativePosition.QUARTER
-        ret, df = ctx.get_cash_flow(code=futu_code, start="", end="", pdl_period_type=period)
-        if ret != ft.RET_OK or df is None or df.empty:
-            raise FutuError(f"Futu cashflow failed for {ticker}: {df}")
-        header = f"# Cash Flow Statement for {ticker.upper()} (Futu)\n\n"
-        return header + df.head(8).to_csv(index=False)
-    except FutuError:
-        raise
-    except Exception as e:
-        raise FutuError(f"Futu cashflow failed for {ticker}: {e}") from e
-    finally:
-        ctx.close()
+    return _get_futu_statements(ticker, "Cash Flow Statement")
 
 
 # ── Connection test ────────────────────────────────────────────────────────────

@@ -111,8 +111,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
         ".SZ": "akshare",
     },
     # Whether to prefer Futu for US stocks (requires OpenD running locally)
-    # Change to True after installing and starting Futu OpenD
-    "futu_enabled": False,
+    "futu_enabled": True,
     # Benchmark for alpha calculation in the reflection layer.
     # ``benchmark_ticker`` (when set) overrides the suffix map for all
     # tickers; leave it None to use ``benchmark_map`` for auto-detection
