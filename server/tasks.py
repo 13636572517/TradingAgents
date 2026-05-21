@@ -212,7 +212,9 @@ def run_analysis(self, analysis_id: str):
         record = db.get(Analysis, analysis_id)
         if record:
             record.status = "failed"
-            record.stage_detail = f"错误: {str(exc)[:200]}"
+            # Keep record.stage as-is (shows where analysis got to before failure)
+            # Keep record.result as-is (preserves completed analyst reports)
+            record.stage_detail = f"中途失败: {str(exc)[:150]}"
             record.error = str(exc)
             record.seen = False
             db.commit()

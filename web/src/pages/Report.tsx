@@ -311,7 +311,12 @@ export default function Report() {
 
   const displayStatus = progress?.status ?? analysis.status
 
-  if (displayStatus === "failed") {
+  // Check if there are any partial results to show even on failure
+  const hasPartialResults = analysis.result &&
+    Object.values(analysis.result).some((v) => v !== null && v !== undefined && v !== "")
+
+  if (displayStatus === "failed" && !hasPartialResults) {
+    // No results at all — show simple error page
     return (
       <div className="p-10 text-center">
         <p className="text-red-400 text-lg mb-2">分析失败</p>
@@ -325,19 +330,20 @@ export default function Report() {
 
   const isRunning = displayStatus === "running" || displayStatus === "pending"
   const isStopped = displayStatus === "stopped"
+  const isFailed = displayStatus === "failed"
 
   const handleStopped = () => {
     esRef.current?.close()
     api.getAnalysis(id!).then(setAnalysis)
   }
 
-  // Unified two-panel view: running / stopped (partial) / complete
+  // Unified two-panel view: running / stopped / failed-with-partial / complete
   return (
     <>
       {isStopped && (
         <div className="bg-hold/10 border-b border-hold/30 px-4 py-2 flex items-center gap-3 text-sm">
           <span className="text-hold font-semibold">■ 已手动停止</span>
-          <span className="text-gray-400">以下为已完成的部分内容，未完成的分析师报告不可用</span>
+          <span className="text-gray-400">以下为已完成的部分内容</span>
           <button
             onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis.ticker)}`)}
             className="ml-auto text-xs text-accent hover:underline"
@@ -346,9 +352,23 @@ export default function Report() {
           </button>
         </div>
       )}
+      {isFailed && hasPartialResults && (
+        <div className="bg-red-500/10 border-b border-red-500/30 px-4 py-2 flex items-center gap-3 text-sm">
+          <span className="text-red-400 font-semibold">✗ 分析中途失败</span>
+          <span className="text-gray-400 truncate max-w-md" title={analysis.error ?? ""}>
+            {analysis.error?.slice(0, 80) ?? "未知错误"}
+          </span>
+          <button
+            onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis.ticker)}`)}
+            className="ml-auto text-xs text-accent hover:underline shrink-0"
+          >
+            重新分析 →
+          </button>
+        </div>
+      )}
       <AnalysisWorkspace
         analysis={analysis}
-        progress={isStopped ? null : progress}
+        progress={(isStopped || isFailed) ? null : progress}
         isRunning={isRunning}
         onStopped={handleStopped}
       />
