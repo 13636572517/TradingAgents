@@ -251,36 +251,58 @@ def get_cn_fundamentals(
     ticker: Annotated[str, "ticker symbol in Yahoo Finance format e.g. 600519.SS"],
     curr_date: Annotated[str, "current date (unused for AkShare)"] = None,
 ) -> str:
-    """Get A-share company fundamentals from Eastmoney via AkShare."""
+    """Get A-share company key financial indicators from Tonghuashun via AkShare.
+
+    Uses stock_financial_abstract_ths which is more stable than Eastmoney endpoints.
+    Returns annual historical data: revenue, net profit, EPS, ROE, margins, debt ratios.
+    """
     try:
         import akshare as ak
     except ImportError:
         raise AkShareError("akshare is not installed")
     try:
         short_code = _yf_to_short_code(ticker)
-        info_df = ak.stock_individual_info_em(symbol=short_code)
-        if info_df is None or info_df.empty:
-            return f"No fundamentals data found for {ticker}"
 
-        lines = []
-        for _, row in info_df.iterrows():
-            if len(row) >= 2:
-                item = str(row.iloc[0])
-                value = str(row.iloc[1])
-                if item.lower() != "nan" and value.lower() != "nan":
-                    lines.append(f"{item}: {value}")
+        # Primary: Tonghuashun financial abstract — stable, comprehensive
+        df = ak.stock_financial_abstract_ths(symbol=short_code, indicator="按年度")
+        if df is None or df.empty:
+            raise ValueError("Empty result from stock_financial_abstract_ths")
+
+        # Keep last 5 years, replace False with "-"
+        df = df.tail(5).copy()
+        df = df.replace(False, "-")
 
         header = (
-            f"# Company Fundamentals for {ticker.upper()} (A-share)\n"
-            f"# Source: Eastmoney (东方财富)\n"
+            f"# Key Financial Indicators for {ticker.upper()} (A-share, 近5年)\n"
+            f"# Source: Tonghuashun (同花顺) | Currency: CNY\n"
             f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         )
-        return header + "\n".join(lines)
+        return header + df.to_csv(index=False)
+
     except AkShareError:
         raise
     except Exception as e:
-        logger.warning("AkShare get_cn_fundamentals failed for %s: %s", ticker, e)
-        raise AkShareError(f"AkShare fundamentals failed for {ticker}: {e}") from e
+        logger.warning("AkShare get_cn_fundamentals (THS) failed for %s: %s", ticker, e)
+        # Fallback: try Eastmoney basic company info
+        try:
+            import akshare as ak
+            short_code = _yf_to_short_code(ticker)
+            info_df = ak.stock_individual_info_em(symbol=short_code)
+            if info_df is not None and not info_df.empty:
+                lines = []
+                for _, row in info_df.iterrows():
+                    if len(row) >= 2:
+                        item, value = str(row.iloc[0]), str(row.iloc[1])
+                        if item.lower() not in ("nan",) and value.lower() not in ("nan",):
+                            lines.append(f"{item}: {value}")
+                header = (
+                    f"# Company Info for {ticker.upper()} (A-share)\n"
+                    f"# Source: Eastmoney (东方财富)\n\n"
+                )
+                return header + "\n".join(lines)
+        except Exception as e2:
+            logger.warning("Fallback Eastmoney also failed for %s: %s", ticker, e2)
+        raise AkShareError(f"All fundamentals sources failed for {ticker}") from e
 
 
 def get_cn_balance_sheet(
