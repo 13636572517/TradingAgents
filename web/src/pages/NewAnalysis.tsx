@@ -64,6 +64,9 @@ export default function NewAnalysis() {
             value={ticker}
             onChange={(e) => setTicker(e.target.value)}
           />
+          <p className="mt-1 text-xs text-gray-500">
+            A股需加交易所后缀：沪市 <span className="text-gray-400">.SS</span>，深市 <span className="text-gray-400">.SZ</span>（如 <span className="text-gray-400">159992.SZ</span>）；港股加 <span className="text-gray-400">.HK</span>
+          </p>
         </div>
 
         <div>
