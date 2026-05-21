@@ -106,9 +106,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Tickers whose suffix matches are automatically routed to the mapped vendor.
     # US stocks (no suffix) use Futu when OpenD is running; falls back to yfinance.
     # Set FUTU_ENABLED=false to disable Futu routing.
+    # A股优先用聚宽（稳定，需注册）；失败时 fallback 到 akshare → yfinance
     "market_vendor_overrides": {
-        ".SS": "akshare",
-        ".SZ": "akshare",
+        ".SS": "joinquant",
+        ".SZ": "joinquant",
     },
     # Whether to prefer Futu for US stocks (requires OpenD running locally)
     "futu_enabled": True,

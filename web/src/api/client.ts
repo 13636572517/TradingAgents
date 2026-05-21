@@ -39,6 +39,10 @@ export const api = {
   testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
   getFutuStatus: () =>
     http.get<{ connected: boolean; error?: string }>("/settings/futu-status").then((r) => r.data),
+  getJQStatus: () =>
+    http.get<{ connected: boolean; username?: string; queries_remaining?: number; error?: string }>(
+      "/settings/jq-status"
+    ).then((r) => r.data),
 
   getAggregateStats: () =>
     http.get<AggregateStats>("/stats").then((r) => r.data),

@@ -3,6 +3,55 @@ import { useEffect, useState, useCallback } from "react"
 import { api } from "../api/client"
 import type { Settings, SettingsUpdate, ModelOption, Provider, TestResult } from "../types"
 
+// ── JoinQuant status panel ────────────────────────────────────────────────────
+function JQPanel() {
+  const [status, setStatus] = useState<{
+    connected: boolean; username?: string; queries_remaining?: number; error?: string
+  } | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  const check = async () => {
+    setChecking(true)
+    try { setStatus(await api.getJQStatus()) }
+    catch { setStatus({ connected: false, error: "无法连接到后端" }) }
+    finally { setChecking(false) }
+  }
+
+  return (
+    <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <span className="text-white font-medium">聚宽 JoinQuant（A股主数据源）</span>
+          <span className="ml-2 text-gray-500 text-xs">需在 joinquant.com/default/index/sdk 申请开通</span>
+        </div>
+        <button
+          onClick={check}
+          disabled={checking}
+          className="text-xs px-3 py-1 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
+        >
+          {checking ? "检测中…" : "检测连接"}
+        </button>
+      </div>
+      {status && (
+        <div className={`rounded p-2.5 text-xs ${
+          status.connected
+            ? "bg-buy/10 border border-buy/30 text-buy"
+            : "bg-red-500/10 border border-red-500/30 text-red-400"
+        }`}>
+          {status.connected
+            ? `✓ 已连接 (${status.username})，今日剩余查询：${status.queries_remaining} 次`
+            : `✗ 未连接 — ${status.error ?? "请先在聚宽官网申请 SDK 权限"}`}
+        </div>
+      )}
+      {!status && (
+        <p className="text-gray-600 text-xs">
+          点击「检测连接」验证聚宽 API 权限是否已开通
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Futu OpenD status panel ───────────────────────────────────────────────────
 function FutuPanel() {
   const [status, setStatus] = useState<{ connected: boolean; error?: string } | null>(null)
@@ -360,6 +409,9 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      {/* JoinQuant status panel */}
+      <JQPanel />
 
       {/* Futu OpenD status panel */}
       <FutuPanel />

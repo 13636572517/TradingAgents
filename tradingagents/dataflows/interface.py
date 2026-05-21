@@ -42,6 +42,15 @@ from .futu_data import (
     get_futu_cashflow,
     get_futu_income_statement,
 )
+from .jq_data import (
+    JQError,
+    get_jq_stock_data,
+    get_jq_indicators,
+    get_jq_fundamentals,
+    get_jq_balance_sheet,
+    get_jq_income_statement,
+    get_jq_cashflow,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -84,6 +93,7 @@ VENDOR_LIST = [
     "alpha_vantage",
     "akshare",
     "futu",
+    "joinquant",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -94,12 +104,14 @@ VENDOR_METHODS = {
         "yfinance": get_YFin_data_online,
         "akshare": get_cn_stock_data,
         "futu": get_futu_stock_data,
+        "joinquant": get_jq_stock_data,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
-        "akshare": get_cn_indicators,   # AkShare OHLCV + stockstats for .SS/.SZ
+        "akshare": get_cn_indicators,
+        "joinquant": get_jq_indicators,
     },
     # fundamental_data
     "get_fundamentals": {
@@ -107,24 +119,28 @@ VENDOR_METHODS = {
         "yfinance": get_yfinance_fundamentals,
         "akshare": get_cn_fundamentals,
         "futu": get_futu_fundamentals,
+        "joinquant": get_jq_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
         "akshare": get_cn_balance_sheet,
         "futu": get_futu_balance_sheet,
+        "joinquant": get_jq_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
         "akshare": get_cn_cashflow,
         "futu": get_futu_cashflow,
+        "joinquant": get_jq_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
         "akshare": get_cn_income_statement,
         "futu": get_futu_income_statement,
+        "joinquant": get_jq_income_statement,
     },
     # news_data
     "get_news": {
@@ -234,7 +250,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except (AlphaVantageRateLimitError, AkShareError, FutuError):
+        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError):
             continue  # All trigger fallback to next vendor
 
     raise RuntimeError(f"No available vendor for '{method}'")

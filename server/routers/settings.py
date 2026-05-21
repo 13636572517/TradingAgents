@@ -197,3 +197,10 @@ def futu_status():
     from tradingagents.dataflows.futu_data import test_futu_connection
     result = test_futu_connection()
     return result
+
+
+@router.get("/jq-status")
+def jq_status():
+    """Check JoinQuant API connectivity and remaining queries."""
+    from tradingagents.dataflows.jq_data import test_jq_connection
+    return test_jq_connection()
