@@ -112,60 +112,62 @@ VENDOR_LIST = [
     "baostock",
 ]
 
-# Mapping of methods to their vendor-specific implementations
+# Mapping of methods to their vendor-specific implementations.
+# ORDERING MATTERS: the fallback chain is built in dict key order.
+# CN-specific vendors come before alpha_vantage (which has no A-share data).
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
-        "alpha_vantage": get_alpha_vantage_stock,
-        "yfinance": get_YFin_data_online,
-        "akshare": get_cn_stock_data,
-        "futu": get_futu_stock_data,
-        "joinquant": get_jq_stock_data,
-        "baostock": get_bs_stock_data,
-        "mairui": get_mr_stock_data,
+        "mairui": get_mr_stock_data,       # CN primary (stable, current)
+        "baostock": get_bs_stock_data,     # CN fallback (free, full history)
+        "joinquant": get_jq_stock_data,    # CN historical
+        "akshare": get_cn_stock_data,      # CN general
+        "futu": get_futu_stock_data,       # HK/US via OpenD
+        "yfinance": get_YFin_data_online,  # US/HK general
+        "alpha_vantage": get_alpha_vantage_stock,  # last resort (US only)
     },
     # technical_indicators
     "get_indicators": {
-        "alpha_vantage": get_alpha_vantage_indicator,
+        "mairui": get_mr_indicators,       # CN primary
+        "baostock": get_bs_indicators,     # CN fallback
+        "joinquant": get_jq_indicators,    # CN historical
+        "akshare": get_cn_indicators,      # CN general
         "yfinance": get_stock_stats_indicators_window,
-        "akshare": get_cn_indicators,
-        "joinquant": get_jq_indicators,
-        "baostock": get_bs_indicators,
-        "mairui": get_mr_indicators,
+        "alpha_vantage": get_alpha_vantage_indicator,  # last resort
     },
     # fundamental_data
     "get_fundamentals": {
-        "alpha_vantage": get_alpha_vantage_fundamentals,
+        "mairui": get_mr_fundamentals,     # CN snapshot
+        "joinquant": get_jq_fundamentals,  # CN detailed (historical range)
+        "baostock": get_bs_fundamentals,   # CN fallback
+        "akshare": get_cn_fundamentals,    # CN general
+        "futu": get_futu_fundamentals,     # HK/US
         "yfinance": get_yfinance_fundamentals,
-        "akshare": get_cn_fundamentals,
-        "futu": get_futu_fundamentals,
-        "joinquant": get_jq_fundamentals,
-        "baostock": get_bs_fundamentals,
-        "mairui": get_mr_fundamentals,
+        "alpha_vantage": get_alpha_vantage_fundamentals,  # last resort
     },
     "get_balance_sheet": {
-        "alpha_vantage": get_alpha_vantage_balance_sheet,
-        "yfinance": get_yfinance_balance_sheet,
+        "joinquant": get_jq_balance_sheet, # CN detailed financial statements
+        "baostock": get_bs_balance_sheet,
         "akshare": get_cn_balance_sheet,
         "futu": get_futu_balance_sheet,
-        "joinquant": get_jq_balance_sheet,
-        "baostock": get_bs_balance_sheet,
+        "yfinance": get_yfinance_balance_sheet,
+        "alpha_vantage": get_alpha_vantage_balance_sheet,
     },
     "get_cashflow": {
-        "alpha_vantage": get_alpha_vantage_cashflow,
-        "yfinance": get_yfinance_cashflow,
-        "akshare": get_cn_cashflow,
-        "futu": get_futu_cashflow,
         "joinquant": get_jq_cashflow,
         "baostock": get_bs_cashflow,
+        "akshare": get_cn_cashflow,
+        "futu": get_futu_cashflow,
+        "yfinance": get_yfinance_cashflow,
+        "alpha_vantage": get_alpha_vantage_cashflow,
     },
     "get_income_statement": {
-        "alpha_vantage": get_alpha_vantage_income_statement,
-        "yfinance": get_yfinance_income_statement,
-        "akshare": get_cn_income_statement,
-        "futu": get_futu_income_statement,
         "joinquant": get_jq_income_statement,
         "baostock": get_bs_income_statement,
+        "akshare": get_cn_income_statement,
+        "futu": get_futu_income_statement,
+        "yfinance": get_yfinance_income_statement,
+        "alpha_vantage": get_alpha_vantage_income_statement,
     },
     # news_data
     "get_news": {

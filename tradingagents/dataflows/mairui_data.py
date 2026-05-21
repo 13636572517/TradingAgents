@@ -21,9 +21,13 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-_LICENCE = os.getenv("MAIRUI_LICENCE", "")
 _BASE = "https://api.mairuiapi.com"
 _TIMEOUT = 15
+
+
+def _licence() -> str:
+    """Read licence dynamically so changes to .env take effect without restart."""
+    return os.getenv("MAIRUI_LICENCE", "")
 
 
 class MaiRuiError(Exception):
@@ -45,18 +49,15 @@ def _to_mr_code(ticker: str) -> str:
     return t   # .SZ stays as-is
 
 
-def _check_licence():
-    if not _LICENCE:
+def _get(path: str, params: dict = None) -> list | dict:
+    """Make a GET request to MaiRui API. Raises MaiRuiError on failure."""
+    lic = _licence()
+    if not lic:
         raise MaiRuiError(
             "MAIRUI_LICENCE not set in .env. "
             "Get a licence at mairui.club and add MAIRUI_LICENCE=xxx to .env"
         )
-
-
-def _get(path: str, params: dict = None) -> list | dict:
-    """Make a GET request to MaiRui API. Raises MaiRuiError on failure."""
-    _check_licence()
-    url = f"{_BASE}/{path.lstrip('/')}/{_LICENCE}"
+    url = f"{_BASE}/{path.lstrip('/')}/{lic}"
     try:
         session = requests.Session()
         session.trust_env = False   # bypass system proxy
@@ -235,3 +236,9 @@ def test_mr_connection() -> dict:
         return {"connected": False, "error": str(data)[:100]}
     except Exception as e:
         return {"connected": False, "error": str(e)[:200]}
+
+
+# ── Alias for Settings panel ───────────────────────────────────────────────────
+
+def test_mairui_connection() -> dict:
+    return test_mr_connection()

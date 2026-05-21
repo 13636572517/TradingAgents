@@ -201,6 +201,12 @@ def futu_status():
 
 @router.get("/jq-status")
 def jq_status():
-    """Check JoinQuant API connectivity and remaining queries."""
     from tradingagents.dataflows.jq_data import test_jq_connection
     return test_jq_connection()
+
+
+@router.get("/mairui-status")
+def mairui_status():
+    """Check MaiRui API connectivity."""
+    from tradingagents.dataflows.mairui_data import test_mairui_connection
+    return test_mairui_connection()
