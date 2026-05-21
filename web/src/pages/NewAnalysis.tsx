@@ -2,6 +2,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
+import TickerInput from "../components/TickerInput"
 
 const ANALYSTS = [
   { key: "fundamentals", label: "基本面", emoji: "📊" },
@@ -57,15 +58,10 @@ export default function NewAnalysis() {
       <h1 className="text-2xl font-bold text-white mb-8">新建分析</h1>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm text-gray-400 mb-1">股票代码</label>
-          <input
-            className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent"
-            placeholder="例如：600519.SS / 0700.HK / NVDA"
-            value={ticker}
-            onChange={(e) => setTicker(e.target.value)}
-          />
+          <label className="block text-sm text-gray-400 mb-1">股票 / 基金代码</label>
+          <TickerInput value={ticker} onChange={setTicker} />
           <p className="mt-1 text-xs text-gray-500">
-            A股需加交易所后缀：沪市 <span className="text-gray-400">.SS</span>，深市 <span className="text-gray-400">.SZ</span>（如 <span className="text-gray-400">159992.SZ</span>）；港股加 <span className="text-gray-400">.HK</span>
+            输入代码或关键词搜索；港股加 <span className="text-gray-400">.HK</span>，美股直接输入代码如 <span className="text-gray-400">NVDA</span>
           </p>
         </div>
 

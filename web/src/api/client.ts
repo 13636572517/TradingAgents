@@ -36,6 +36,14 @@ export const api = {
     http.get<ModelsResponse>("/settings/models", { params: { provider } }).then((r) => r.data),
   getProviders: () => http.get<Provider[]>("/settings/providers").then((r) => r.data),
   testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
+
+  searchStocks: (q: string) =>
+    http
+      .get<{ ticker: string; name: string; code: string; market: string }[]>(
+        "/search",
+        { params: { q, limit: 10 } }
+      )
+      .then((r) => r.data),
 }
 
 export function openProgressStream(
