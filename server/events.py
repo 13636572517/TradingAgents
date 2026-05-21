@@ -57,15 +57,19 @@ async def analysis_event_stream(analysis_id: str) -> AsyncGenerator[str, None]:
                     payload["decision"] = record.decision
                 yield _sse(payload)
 
-            if record.status in ("complete", "failed"):
-                # Send a final event so the client knows to stop
+            if record.status in ("complete", "failed", "stopped"):
                 if record.status == "failed":
                     yield _sse({
-                        "stage": "failed",
-                        "label": "分析失败",
+                        "stage": "failed", "label": "分析失败",
                         "detail": record.stage_detail or record.error or "未知错误",
-                        "progress": 0,
-                        "status": "failed",
+                        "progress": 0, "status": "failed",
+                    })
+                elif record.status == "stopped":
+                    yield _sse({
+                        "stage": record.stage, "label": "已停止",
+                        "detail": "用户手动停止，已完成部分可查看",
+                        "progress": _STAGE_PROGRESS.get(record.stage, 0),
+                        "status": "stopped", "refresh": True,
                     })
                 return
         finally:

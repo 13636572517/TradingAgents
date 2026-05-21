@@ -15,6 +15,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   running:  { label: "分析中…", cls: "text-accent animate-pulse" },
   complete: { label: "完成",    cls: "text-buy" },
   failed:   { label: "失败",    cls: "text-red-400" },
+  stopped:  { label: "已停止",  cls: "text-hold" },
 }
 
 function AnalysisCard({

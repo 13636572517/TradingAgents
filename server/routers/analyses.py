@@ -64,8 +64,7 @@ def stop_analysis(analysis_id: str, db: Session = Depends(get_db)):
         from server.celery_app import celery_app
         celery_app.control.revoke(record.celery_task_id, terminate=True, signal="SIGTERM")
 
-    record.status = "failed"
-    record.stage = "failed"
+    record.status = "stopped"
     record.stage_detail = "用户手动停止"
     record.error = "Manually stopped by user"
     record.seen = True

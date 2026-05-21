@@ -127,14 +127,16 @@ function AnalysisWorkspace({
             · {displayDetail}
           </span>
         )}
-        {isRunning && (
+        {isRunning && !stopping && (
           <button
             onClick={handleStop}
-            disabled={stopping}
-            className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+            className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
           >
-            {stopping ? "停止中…" : "■ 停止分析"}
+            ■ 停止分析
           </button>
+        )}
+        {stopping && (
+          <span className="ml-auto text-xs text-gray-500">停止中…</span>
         )}
       </div>
 
@@ -322,19 +324,34 @@ export default function Report() {
   }
 
   const isRunning = displayStatus === "running" || displayStatus === "pending"
+  const isStopped = displayStatus === "stopped"
 
   const handleStopped = () => {
     esRef.current?.close()
     api.getAnalysis(id!).then(setAnalysis)
   }
 
-  // Unified two-panel view for both running and complete states
+  // Unified two-panel view: running / stopped (partial) / complete
   return (
-    <AnalysisWorkspace
-      analysis={analysis}
-      progress={progress}
-      isRunning={isRunning}
-      onStopped={handleStopped}
-    />
+    <>
+      {isStopped && (
+        <div className="bg-hold/10 border-b border-hold/30 px-4 py-2 flex items-center gap-3 text-sm">
+          <span className="text-hold font-semibold">■ 已手动停止</span>
+          <span className="text-gray-400">以下为已完成的部分内容，未完成的分析师报告不可用</span>
+          <button
+            onClick={() => navigate("/new")}
+            className="ml-auto text-xs text-accent hover:underline"
+          >
+            重新分析 →
+          </button>
+        </div>
+      )}
+      <AnalysisWorkspace
+        analysis={analysis}
+        progress={isStopped ? null : progress}
+        isRunning={isRunning}
+        onStopped={handleStopped}
+      />
+    </>
   )
 }

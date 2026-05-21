@@ -6,7 +6,7 @@ export interface Analysis {
   trade_date: string
   analysts: string[]
   depth: number
-  status: "pending" | "running" | "complete" | "failed"
+  status: "pending" | "running" | "complete" | "failed" | "stopped"
   stage: string
   stage_detail: string | null
   usage: UsageStats | null
