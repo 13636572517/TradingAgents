@@ -1,5 +1,6 @@
 # server/tasks.py
 import logging
+import os
 from datetime import datetime
 
 from server.celery_app import celery_app
@@ -15,10 +16,49 @@ _NODE_TO_STAGE = {
     "Portfolio Manager": "decision",
 }
 
+# Map provider name → environment variable that holds the API key
+_PROVIDER_ENV = {
+    "qwen":       "DASHSCOPE_API_KEY",
+    "qwen-cn":    "DASHSCOPE_CN_API_KEY",
+    "openai":     "OPENAI_API_KEY",
+    "anthropic":  "ANTHROPIC_API_KEY",
+    "deepseek":   "DEEPSEEK_API_KEY",
+    "glm":        "ZHIPU_API_KEY",
+    "glm-cn":     "ZHIPU_CN_API_KEY",
+}
+
 
 def _set_stage(db, record: Analysis, stage: str):
     record.stage = stage
     db.commit()
+
+
+def _apply_llm_config(config: dict, llm_config: dict) -> dict:
+    """Overlay DB settings onto the DEFAULT_CONFIG copy and set env vars."""
+    if not llm_config:
+        return config
+
+    provider = llm_config.get("provider")
+    if provider:
+        config["llm_provider"] = provider
+
+    if llm_config.get("deep_model"):
+        config["deep_think_llm"] = llm_config["deep_model"]
+
+    if llm_config.get("quick_model"):
+        config["quick_think_llm"] = llm_config["quick_model"]
+
+    if llm_config.get("backend_url"):
+        config["backend_url"] = llm_config["backend_url"]
+
+    # Inject API key into environment so the LLM client can find it
+    api_key = llm_config.get("api_key")
+    if api_key and provider:
+        env_var = _PROVIDER_ENV.get(provider)
+        if env_var:
+            os.environ[env_var] = api_key
+
+    return config
 
 
 @celery_app.task(bind=True, name="server.tasks.run_analysis")
@@ -49,6 +89,9 @@ def run_analysis(self, analysis_id: str):
         config["max_risk_discuss_rounds"] = record.depth
         config["debug"] = True
         config["checkpoint_enabled"] = False
+
+        # Apply LLM settings from DB (snapshotted at submission time)
+        config = _apply_llm_config(config, record.llm_config or {})
 
         ta = TradingAgentsGraph(debug=True, config=config)
 

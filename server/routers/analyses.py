@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from server.database import get_db
-from server.models import Analysis
+from server.models import Analysis, AppSettings
 from server.schemas import AnalysisCreate, AnalysisOut, AnalysisListOut
 from server.events import analysis_event_stream
 
@@ -17,6 +17,16 @@ def create_analysis(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+    # Snapshot current LLM settings so the task uses them even if settings change later
+    settings = db.get(AppSettings, 1)
+    llm_config = {
+        "provider":   settings.provider   if settings else "openai",
+        "api_key":    settings.api_key    if settings else None,
+        "deep_model": settings.deep_model if settings else "gpt-4o",
+        "quick_model":settings.quick_model if settings else "gpt-4o-mini",
+        "backend_url":settings.backend_url if settings else None,
+    } if settings else {}
+
     record = Analysis(
         ticker=payload.ticker.upper(),
         trade_date=payload.trade_date,
@@ -25,6 +35,7 @@ def create_analysis(
         status="pending",
         stage="pending",
         seen=True,
+        llm_config=llm_config,
     )
     db.add(record)
     db.commit()

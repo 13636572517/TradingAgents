@@ -39,3 +39,19 @@ export interface ProgressEvent {
   decision?: string
   error?: string
 }
+
+export interface Settings {
+  provider: string
+  deep_model: string
+  quick_model: string
+  backend_url: string | null
+  has_api_key: boolean
+}
+
+export interface SettingsUpdate {
+  provider: string
+  api_key?: string
+  deep_model: string
+  quick_model: string
+  backend_url?: string
+}

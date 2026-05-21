@@ -4,6 +4,7 @@ import Sidebar from "./components/Sidebar"
 import NewAnalysis from "./pages/NewAnalysis"
 import History from "./pages/History"
 import Report from "./pages/Report"
+import SettingsPage from "./pages/Settings"
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
             <Route path="/new" element={<NewAnalysis />} />
             <Route path="/history" element={<History />} />
             <Route path="/report/:id" element={<Report />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>

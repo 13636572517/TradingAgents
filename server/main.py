@@ -6,6 +6,7 @@ from pathlib import Path
 from server.database import init_db
 from server.routers.analyses import router as analyses_router
 from server.routers.notifications import router as notifications_router
+from server.routers.settings import router as settings_router
 
 app = FastAPI(title="TradingAgents Web API", version="1.0.0")
 
@@ -19,6 +20,7 @@ app.add_middleware(
 
 app.include_router(analyses_router)
 app.include_router(notifications_router)
+app.include_router(settings_router)
 
 
 @app.on_event("startup")

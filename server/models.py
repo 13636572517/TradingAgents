@@ -19,6 +19,20 @@ class Analysis(Base):
     result       = Column(JSON)                          # all analyst reports + final decision
     decision     = Column(String(10))                    # BUY|HOLD|SELL
     error        = Column(Text)
+    llm_config   = Column(JSON)                          # snapshot of LLM settings at submit time
     created_at   = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     seen         = Column(Boolean, default=True)         # False triggers sidebar badge
+
+
+class AppSettings(Base):
+    """Single-row application settings table. Row id is always 1."""
+    __tablename__ = "app_settings"
+
+    id           = Column(Integer, primary_key=True, default=1)
+    provider     = Column(String(30), default="qwen-cn")
+    api_key      = Column(Text)                          # stored as-is; never sent to frontend
+    deep_model   = Column(String(100), default="qwen3.6-plus")
+    quick_model  = Column(String(100), default="qwen3.6-flash")
+    backend_url  = Column(Text)                          # optional proxy / custom endpoint
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

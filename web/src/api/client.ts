@@ -1,6 +1,6 @@
 // web/src/api/client.ts
 import axios from "axios"
-import type { Analysis, AnalysisListResponse, ProgressEvent } from "../types"
+import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
 
@@ -28,6 +28,10 @@ export const api = {
       .then((r) => r.data),
 
   markAllRead: () => http.post("/notifications/read"),
+
+  getSettings: () => http.get<Settings>("/settings").then((r) => r.data),
+  saveSettings: (payload: SettingsUpdate) =>
+    http.post<Settings>("/settings", payload).then((r) => r.data),
 }
 
 export function openProgressStream(

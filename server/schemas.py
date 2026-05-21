@@ -38,3 +38,21 @@ class AnalysisListOut(BaseModel):
 
 class NotificationCount(BaseModel):
     unseen: int
+
+
+class SettingsUpdate(BaseModel):
+    provider: str
+    api_key: Optional[str] = None      # None means "keep existing"
+    deep_model: str
+    quick_model: str
+    backend_url: Optional[str] = None
+
+
+class SettingsOut(BaseModel):
+    provider: str
+    deep_model: str
+    quick_model: str
+    backend_url: Optional[str]
+    has_api_key: bool                  # true if key is stored, never expose the key itself
+
+    model_config = {"from_attributes": True}
