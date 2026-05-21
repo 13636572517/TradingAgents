@@ -3,14 +3,72 @@ import { useEffect, useState, useCallback } from "react"
 import { api } from "../api/client"
 import type { Settings, SettingsUpdate, ModelOption, Provider, TestResult } from "../types"
 
+// ── ModelInput: dropdown quick-select + free-text input (always editable) ────
+function ModelInput({
+  label,
+  hint,
+  models,
+  value,
+  onChange,
+  loading,
+}: {
+  label: string
+  hint: string
+  models: ModelOption[]
+  value: string
+  onChange: (v: string) => void
+  loading: boolean
+}) {
+  // Which dropdown option is currently selected (empty string = none / custom)
+  const knownValues = models.map((m) => m.value).filter((v) => v !== "custom")
+  const dropdownValue = knownValues.includes(value) ? value : ""
+
+  const handleDropdown = (v: string) => {
+    if (v && v !== "custom") onChange(v)
+  }
+
+  return (
+    <div>
+      <label className="block text-sm text-gray-400 mb-1">
+        {label}
+        <span className="ml-1 text-gray-500 text-xs">（{hint}）</span>
+      </label>
+
+      {/* Quick-select dropdown */}
+      <select
+        className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent disabled:opacity-50 mb-1.5"
+        value={dropdownValue}
+        onChange={(e) => handleDropdown(e.target.value)}
+        disabled={loading}
+      >
+        <option value="">— 从列表选择 —</option>
+        {loading
+          ? <option disabled>加载中…</option>
+          : models.filter((m) => m.value !== "custom").map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))
+        }
+      </select>
+
+      {/* Free-text input — always visible, single source of truth */}
+      <input
+        type="text"
+        className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-white text-sm focus:outline-none focus:border-accent placeholder-gray-600"
+        placeholder="或手动输入模型 ID，例如 qwen-plus"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  )
+}
+
+// ── Main Settings page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
-  // ── Remote data ──────────────────────────────────────────────────────────
   const [saved, setSaved] = useState<Settings | null>(null)
   const [providers, setProviders] = useState<Provider[]>([])
   const [quickModels, setQuickModels] = useState<ModelOption[]>([])
   const [deepModels, setDeepModels] = useState<ModelOption[]>([])
 
-  // ── Form state ───────────────────────────────────────────────────────────
   const [provider, setProvider] = useState("qwen-cn")
   const [apiKey, setApiKey] = useState("")
   const [deepModel, setDeepModel] = useState("")
@@ -18,14 +76,12 @@ export default function SettingsPage() {
   const [backendUrl, setBackendUrl] = useState("")
   const [showKey, setShowKey] = useState(false)
 
-  // ── UI state ─────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [loadingModels, setLoadingModels] = useState(false)
 
-  // ── Load models for selected provider ────────────────────────────────────
   const loadModels = useCallback(async (p: string, keepCurrent = false) => {
     setLoadingModels(true)
     try {
@@ -33,22 +89,20 @@ export default function SettingsPage() {
       setQuickModels(data.quick)
       setDeepModels(data.deep)
       if (!keepCurrent) {
-        setQuickModel(data.quick[0]?.value ?? "")
-        setDeepModel(data.deep[0]?.value ?? "")
+        setQuickModel(data.quick.find((m) => m.value !== "custom")?.value ?? "")
+        setDeepModel(data.deep.find((m) => m.value !== "custom")?.value ?? "")
       }
     } finally {
       setLoadingModels(false)
     }
   }, [])
 
-  // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([api.getSettings(), api.getProviders()]).then(([s, ps]) => {
       setSaved(s)
       setProviders(ps)
       setProvider(s.provider)
       setBackendUrl(s.backend_url ?? "")
-      // Load models and keep current saved selection
       api.getModels(s.provider).then((data) => {
         setQuickModels(data.quick)
         setDeepModels(data.deep)
@@ -58,24 +112,26 @@ export default function SettingsPage() {
     })
   }, [])
 
-  // ── Provider change → reload model lists ─────────────────────────────────
   const handleProviderChange = (p: string) => {
     setProvider(p)
     setTestResult(null)
     loadModels(p, false)
   }
 
-  // ── Save ─────────────────────────────────────────────────────────────────
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!deepModel.trim() || !quickModel.trim()) {
+      setSaveMsg({ ok: false, text: "请填写深度模型和快速模型" })
+      return
+    }
     setSaving(true)
     setSaveMsg(null)
     setTestResult(null)
     try {
       const payload: SettingsUpdate = {
         provider,
-        deep_model: deepModel,
-        quick_model: quickModel,
+        deep_model: deepModel.trim(),
+        quick_model: quickModel.trim(),
         backend_url: backendUrl || undefined,
       }
       if (apiKey.trim()) payload.api_key = apiKey.trim()
@@ -90,7 +146,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ── Test connection ───────────────────────────────────────────────────────
   const handleTest = async () => {
     setTesting(true)
     setTestResult(null)
@@ -111,7 +166,7 @@ export default function SettingsPage() {
     <div className="max-w-xl mx-auto px-6 py-10">
       <h1 className="text-2xl font-bold text-white mb-2">API 配置</h1>
       <p className="text-gray-400 text-sm mb-8">
-        配置 LLM 提供商、模型和 API Key。保存后下次提交分析即生效。
+        配置 LLM 提供商、模型和 API Key。下拉列表快速选择，也可直接手动输入模型 ID。
       </p>
 
       <form onSubmit={handleSave} className="space-y-5">
@@ -157,62 +212,24 @@ export default function SettingsPage() {
         </div>
 
         {/* Deep Model */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">
-            深度模型
-            <span className="ml-1 text-gray-500 text-xs">（研究员 · 辩论 · 风控）</span>
-          </label>
-          <select
-            className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent disabled:opacity-50"
-            value={deepModel}
-            onChange={(e) => setDeepModel(e.target.value)}
-            disabled={loadingModels}
-          >
-            {loadingModels
-              ? <option>加载中…</option>
-              : deepModels.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))
-            }
-          </select>
-          {deepModel === "custom" && (
-            <input
-              className="mt-2 w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent text-sm"
-              placeholder="输入自定义模型 ID"
-              value={deepModel === "custom" ? "" : deepModel}
-              onChange={(e) => setDeepModel(e.target.value)}
-            />
-          )}
-        </div>
+        <ModelInput
+          label="深度模型"
+          hint="研究员 · 辩论 · 风控"
+          models={deepModels}
+          value={deepModel}
+          onChange={setDeepModel}
+          loading={loadingModels}
+        />
 
         {/* Quick Model */}
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">
-            快速模型
-            <span className="ml-1 text-gray-500 text-xs">（分析师 · 工具调用）</span>
-          </label>
-          <select
-            className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent disabled:opacity-50"
-            value={quickModel}
-            onChange={(e) => setQuickModel(e.target.value)}
-            disabled={loadingModels}
-          >
-            {loadingModels
-              ? <option>加载中…</option>
-              : quickModels.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))
-            }
-          </select>
-          {quickModel === "custom" && (
-            <input
-              className="mt-2 w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent text-sm"
-              placeholder="输入自定义模型 ID"
-              value={quickModel === "custom" ? "" : quickModel}
-              onChange={(e) => setQuickModel(e.target.value)}
-            />
-          )}
-        </div>
+        <ModelInput
+          label="快速模型"
+          hint="分析师 · 工具调用"
+          models={quickModels}
+          value={quickModel}
+          onChange={setQuickModel}
+          loading={loadingModels}
+        />
 
         {/* Backend URL */}
         <div>
@@ -229,14 +246,12 @@ export default function SettingsPage() {
           />
         </div>
 
-        {/* Save message */}
         {saveMsg && (
           <p className={`text-sm ${saveMsg.ok ? "text-buy" : "text-red-400"}`}>
             {saveMsg.text}
           </p>
         )}
 
-        {/* Buttons */}
         <div className="flex gap-3">
           <button
             type="submit"
@@ -298,9 +313,9 @@ export default function SettingsPage() {
             <span className="text-gray-500">提供商</span>
             <span>{providers.find((p) => p.value === saved.provider)?.label ?? saved.provider}</span>
             <span className="text-gray-500">深度模型</span>
-            <span>{saved.deep_model}</span>
+            <span className="font-mono text-xs">{saved.deep_model}</span>
             <span className="text-gray-500">快速模型</span>
-            <span>{saved.quick_model}</span>
+            <span className="font-mono text-xs">{saved.quick_model}</span>
             <span className="text-gray-500">API Key</span>
             <span className={saved.has_api_key ? "text-buy" : "text-hold"}>
               {saved.has_api_key ? "✓ 已配置" : "⚠ 未配置"}
@@ -308,7 +323,7 @@ export default function SettingsPage() {
             {saved.backend_url && (
               <>
                 <span className="text-gray-500">代理地址</span>
-                <span className="truncate">{saved.backend_url}</span>
+                <span className="truncate text-xs">{saved.backend_url}</span>
               </>
             )}
           </div>
