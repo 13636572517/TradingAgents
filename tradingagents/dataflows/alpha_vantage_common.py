@@ -10,7 +10,11 @@ from io import StringIO
 API_BASE_URL = "https://www.alphavantage.co/query"
 
 def get_api_key() -> str:
-    """Retrieve the API key for Alpha Vantage from environment variables."""
+    """Retrieve the Alpha Vantage API key.
+
+    Raises a plain ValueError here (before AlphaVantageRateLimitError is defined).
+    The real guard is _get_api_key_safe() used inside _make_api_request.
+    """
     api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
     if not api_key:
         raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is not set.")
@@ -38,8 +42,19 @@ def format_datetime_for_api(date_input) -> str:
         raise ValueError(f"Date must be string or datetime object, got {type(date_input)}")
 
 class AlphaVantageRateLimitError(Exception):
-    """Exception raised when Alpha Vantage API rate limit is exceeded."""
+    """Exception raised when Alpha Vantage API rate limit is exceeded or key is missing."""
     pass
+
+
+def _get_api_key_safe() -> str:
+    """Like get_api_key() but raises AlphaVantageRateLimitError so the vendor
+    fallback chain catches it and tries the next vendor instead of crashing."""
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+    if not api_key:
+        raise AlphaVantageRateLimitError(
+            "ALPHA_VANTAGE_API_KEY not set — skipping Alpha Vantage"
+        )
+    return api_key
 
 def _make_api_request(function_name: str, params: dict) -> dict | str:
     """Helper function to make API requests and handle responses.
@@ -51,7 +66,7 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
     api_params = params.copy()
     api_params.update({
         "function": function_name,
-        "apikey": get_api_key(),
+        "apikey": _get_api_key_safe(),
         "source": "trading_agents",
     })
     

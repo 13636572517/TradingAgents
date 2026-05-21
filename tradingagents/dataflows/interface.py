@@ -169,21 +169,20 @@ VENDOR_METHODS = {
         "yfinance": get_yfinance_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
     },
-    # news_data
+    # news_data — CN vendors first, alpha_vantage last (requires API key)
     "get_news": {
-        "alpha_vantage": get_alpha_vantage_news,
-        "yfinance": get_news_yfinance,
-        "akshare": get_cn_news,
+        "akshare": get_cn_news,            # CN primary
+        "yfinance": get_news_yfinance,     # US/HK fallback
+        "alpha_vantage": get_alpha_vantage_news,  # last resort
     },
     "get_global_news": {
+        "akshare": get_cn_global_news,     # CN primary
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
-        "akshare": get_cn_global_news,
     },
     "get_insider_transactions": {
-        "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
-        # akshare not registered — A-share insider disclosures are limited
+        "alpha_vantage": get_alpha_vantage_insider_transactions,  # last resort
     },
 }
 
