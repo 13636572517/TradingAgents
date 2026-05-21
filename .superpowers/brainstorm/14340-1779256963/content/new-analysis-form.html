@@ -1,0 +1,110 @@
+<h2>新建分析 — 表单设计</h2>
+<p class="subtitle">非技术用户提交一次分析任务，需要填多少东西？</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0d1117;border:1px solid #333;border-radius:6px;padding:14px;font-size:11px;color:#cdd6f4;">
+        <div style="color:#00bfff;font-weight:bold;margin-bottom:10px;font-size:12px;">📊 新建分析</div>
+        <div style="margin-bottom:8px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">股票代码</div>
+          <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:5px 8px;color:#fff;">600519.SS</div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">分析日期</div>
+          <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:5px 8px;color:#ccc;">2026-05-20</div>
+        </div>
+        <div style="background:#00bfff;color:#000;border-radius:4px;padding:5px 10px;text-align:center;font-weight:bold;margin-top:4px;font-size:11px;">开始分析 →</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 极简（2个字段）</h3>
+      <p>只填股票代码 + 日期，其余全部用系统默认值。管理员在后台统一配置 LLM 和分析师选项。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>零学习成本</li><li>30秒提交</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>无法定制深度</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0d1117;border:1px solid #333;border-radius:6px;padding:14px;font-size:11px;color:#cdd6f4;">
+        <div style="color:#00bfff;font-weight:bold;margin-bottom:10px;font-size:12px;">📊 新建分析</div>
+        <div style="margin-bottom:7px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">股票代码</div>
+          <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:5px 8px;color:#fff;">600519.SS &nbsp;<span style="color:#00bfff;font-size:9px;">贵州茅台 A股</span></div>
+        </div>
+        <div style="margin-bottom:7px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">分析日期</div>
+          <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:5px 8px;color:#ccc;">2026-05-20</div>
+        </div>
+        <div style="margin-bottom:7px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">研究深度</div>
+          <div style="display:flex;gap:4px;">
+            <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:4px 8px;color:#888;font-size:10px;">快速</div>
+            <div style="background:#00bfff22;border:1px solid #00bfff;border-radius:4px;padding:4px 8px;color:#00bfff;font-size:10px;">标准 ✓</div>
+            <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:4px 8px;color:#888;font-size:10px;">深度</div>
+          </div>
+        </div>
+        <div style="background:#00bfff;color:#000;border-radius:4px;padding:5px 10px;text-align:center;font-weight:bold;margin-top:4px;font-size:11px;">开始分析 →</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 适中（3个字段）</h3>
+      <p>股票代码 + 日期 + 研究深度（快速/标准/深度）。输入时自动识别股票名称。LLM 选项对用户隐藏。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>用户能控制质量/速度</li><li>仍然简洁</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>需要解释深度含义</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#0d1117;border:1px solid #333;border-radius:6px;padding:14px;font-size:11px;color:#cdd6f4;">
+        <div style="color:#00bfff;font-weight:bold;margin-bottom:10px;font-size:12px;">📊 新建分析</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:7px;">
+          <div>
+            <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">股票代码</div>
+            <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:4px 7px;color:#fff;font-size:10px;">600519.SS</div>
+          </div>
+          <div>
+            <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">分析日期</div>
+            <div style="background:#161b22;border:1px solid #444;border-radius:4px;padding:4px 7px;color:#ccc;font-size:10px;">2026-05-20</div>
+          </div>
+        </div>
+        <div style="margin-bottom:6px;">
+          <div style="color:#8892b0;font-size:10px;margin-bottom:3px;">包含分析师</div>
+          <div style="display:flex;flex-wrap:wrap;gap:3px;">
+            <span style="background:#00bfff22;border:1px solid #00bfff44;color:#00bfff;border-radius:3px;padding:2px 5px;font-size:9px;">✓ 基本面</span>
+            <span style="background:#00bfff22;border:1px solid #00bfff44;color:#00bfff;border-radius:3px;padding:2px 5px;font-size:9px;">✓ 情绪</span>
+            <span style="background:#00bfff22;border:1px solid #00bfff44;color:#00bfff;border-radius:3px;padding:2px 5px;font-size:9px;">✓ 新闻</span>
+            <span style="background:#161b22;border:1px solid #555;color:#666;border-radius:3px;padding:2px 5px;font-size:9px;">○ 技术</span>
+          </div>
+        </div>
+        <div style="margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="color:#8892b0;font-size:10px;">研究深度</div>
+            <div style="display:flex;gap:3px;">
+              <div style="background:#161b22;border:1px solid #444;border-radius:3px;padding:2px 6px;color:#888;font-size:9px;">快速</div>
+              <div style="background:#00bfff22;border:1px solid #00bfff;border-radius:3px;padding:2px 6px;color:#00bfff;font-size:9px;">标准✓</div>
+              <div style="background:#161b22;border:1px solid #444;border-radius:3px;padding:2px 6px;color:#888;font-size:9px;">深度</div>
+            </div>
+          </div>
+        </div>
+        <div style="background:#00bfff;color:#000;border-radius:4px;padding:4px 10px;text-align:center;font-weight:bold;font-size:11px;">开始分析 →</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — 完整（可选分析师）</h3>
+      <p>完整暴露4个分析师的开关 + 深度选项。适合有一定金融背景的团队成员。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>灵活定制</li><li>节省成本（减少分析师）</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>对新手有认知负担</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>

@@ -33,6 +33,14 @@ from .akshare_data import (
     get_cn_cashflow,
     get_cn_income_statement,
 )
+from .futu_data import (
+    FutuError,
+    get_futu_stock_data,
+    get_futu_fundamentals,
+    get_futu_balance_sheet,
+    get_futu_cashflow,
+    get_futu_income_statement,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -74,6 +82,7 @@ VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
     "akshare",
+    "futu",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -83,6 +92,7 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
         "akshare": get_cn_stock_data,
+        "futu": get_futu_stock_data,
     },
     # technical_indicators
     "get_indicators": {
@@ -95,21 +105,25 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
         "akshare": get_cn_fundamentals,
+        "futu": get_futu_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
         "akshare": get_cn_balance_sheet,
+        "futu": get_futu_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
         "akshare": get_cn_cashflow,
+        "futu": get_futu_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
         "akshare": get_cn_income_statement,
+        "futu": get_futu_income_statement,
     },
     # news_data
     "get_news": {
@@ -153,6 +167,17 @@ def get_vendor(category: str, method: str = None, ticker_hint: str = None) -> st
         for suffix, vendor in market_overrides.items():
             if suffix and ticker_upper.endswith(suffix.upper()):
                 return vendor
+
+        # Futu for US stocks (no exchange suffix = pure ticker like AAPL, CANG)
+        is_us_stock = (
+            "." not in ticker_upper
+            and not ticker_upper.endswith("-USD")
+            and config.get("futu_enabled", False)
+        )
+        if is_us_stock and method in ("get_stock_data", "get_fundamentals",
+                                       "get_balance_sheet", "get_cashflow",
+                                       "get_income_statement"):
+            return "futu"
 
     # 2. Tool-level override
     if method:
@@ -208,7 +233,7 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except (AlphaVantageRateLimitError, AkShareError):
-            continue  # Both trigger fallback to next vendor
+        except (AlphaVantageRateLimitError, AkShareError, FutuError):
+            continue  # All trigger fallback to next vendor
 
     raise RuntimeError(f"No available vendor for '{method}'")

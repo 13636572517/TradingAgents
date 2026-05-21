@@ -104,11 +104,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
     },
     # Market-based vendor overrides — takes precedence over data_vendors and tool_vendors.
     # Tickers whose suffix matches are automatically routed to the mapped vendor.
-    # HK (.HK) deliberately omitted — yfinance has good HK coverage.
+    # US stocks (no suffix) use Futu when OpenD is running; falls back to yfinance.
+    # Set FUTU_ENABLED=false to disable Futu routing.
     "market_vendor_overrides": {
         ".SS": "akshare",
         ".SZ": "akshare",
     },
+    # Whether to prefer Futu for US stocks (requires OpenD running locally)
+    # Change to True after installing and starting Futu OpenD
+    "futu_enabled": False,
     # Benchmark for alpha calculation in the reflection layer.
     # ``benchmark_ticker`` (when set) overrides the suffix map for all
     # tickers; leave it None to use ``benchmark_map`` for auto-detection

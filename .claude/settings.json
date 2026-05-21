@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest tests/test_cn_vendor_routing.py tests/test_dataflows_config.py tests/test_ticker_symbol_handling.py -v)"
+    ]
+  }
+}

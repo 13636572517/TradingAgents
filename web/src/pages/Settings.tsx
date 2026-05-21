@@ -3,6 +3,62 @@ import { useEffect, useState, useCallback } from "react"
 import { api } from "../api/client"
 import type { Settings, SettingsUpdate, ModelOption, Provider, TestResult } from "../types"
 
+// ── Futu OpenD status panel ───────────────────────────────────────────────────
+function FutuPanel() {
+  const [status, setStatus] = useState<{ connected: boolean; error?: string } | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  const check = async () => {
+    setChecking(true)
+    try {
+      const s = await api.getFutuStatus()
+      setStatus(s)
+    } catch {
+      setStatus({ connected: false, error: "无法连接到后端服务" })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <span className="text-white font-medium">富途 OpenD（美股/港股数据）</span>
+          <span className="ml-2 text-gray-500 text-xs">需本地运行 Futu App 并开启 OpenD</span>
+        </div>
+        <button
+          onClick={check}
+          disabled={checking}
+          className="text-xs px-3 py-1 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
+        >
+          {checking ? "检测中…" : "检测连接"}
+        </button>
+      </div>
+
+      {status && (
+        <div className={`rounded p-2.5 text-xs ${
+          status.connected
+            ? "bg-buy/10 border border-buy/30 text-buy"
+            : "bg-red-500/10 border border-red-500/30 text-red-400"
+        }`}>
+          {status.connected
+            ? "✓ OpenD 已连接，美股数据将优先使用富途"
+            : `✗ OpenD 未连接 — ${status.error ?? "请确认 Futu App 已启动并开启 OpenD"}`}
+        </div>
+      )}
+
+      {!status && (
+        <div className="text-gray-600 text-xs space-y-1">
+          <p>1. 下载安装 moomoo（境外版）或富途牛牛</p>
+          <p>2. 登录后进入：设置 → API → 开启 OpenD</p>
+          <p>3. 点击「检测连接」确认 127.0.0.1:11111 可达</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── ModelInput: dropdown quick-select + free-text input (always editable) ────
 function ModelInput({
   label,
@@ -304,6 +360,9 @@ export default function SettingsPage() {
           )}
         </div>
       )}
+
+      {/* Futu OpenD status panel */}
+      <FutuPanel />
 
       {/* Current config summary */}
       {saved && (

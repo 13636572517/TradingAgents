@@ -187,3 +187,13 @@ def test_connection(db: Session = Depends(get_db)):
 
     except Exception as exc:
         return TestResult(success=False, error=str(exc)[:300])
+
+
+# ── GET /api/settings/futu-status ─────────────────────────────────────────────
+
+@router.get("/futu-status")
+def futu_status():
+    """Check if Futu OpenD is running and reachable."""
+    from tradingagents.dataflows.futu_data import test_futu_connection
+    result = test_futu_connection()
+    return result

@@ -37,6 +37,8 @@ export const api = {
     http.get<ModelsResponse>("/settings/models", { params: { provider } }).then((r) => r.data),
   getProviders: () => http.get<Provider[]>("/settings/providers").then((r) => r.data),
   testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
+  getFutuStatus: () =>
+    http.get<{ connected: boolean; error?: string }>("/settings/futu-status").then((r) => r.data),
 
   getAggregateStats: () =>
     http.get<AggregateStats>("/stats").then((r) => r.data),

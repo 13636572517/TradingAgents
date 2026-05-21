@@ -1,0 +1,86 @@
+<h2>整体页面布局结构</h2>
+<p class="subtitle">哪种布局最符合你们团队的使用习惯？</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;border:1px solid #333;border-radius:6px;overflow:hidden;font-size:11px;">
+        <div style="width:56px;background:#1a1a2e;color:#8892b0;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:12px;border-right:1px solid #333;">
+          <div style="width:28px;height:28px;background:#00bfff22;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#00bfff;font-size:16px;">📊</div>
+          <div style="color:#555;font-size:9px;text-align:center;">新建</div>
+          <div style="color:#555;font-size:9px;text-align:center;">历史</div>
+          <div style="color:#555;font-size:9px;text-align:center;">设置</div>
+        </div>
+        <div style="flex:1;background:#0d1117;padding:10px;">
+          <div style="background:#161b22;border-radius:4px;height:20px;margin-bottom:6px;width:60%;opacity:0.6;"></div>
+          <div style="background:#161b22;border-radius:4px;height:12px;margin-bottom:4px;opacity:0.4;"></div>
+          <div style="background:#161b22;border-radius:4px;height:12px;margin-bottom:4px;width:80%;opacity:0.4;"></div>
+          <div style="background:#00bfff22;border:1px solid #00bfff44;border-radius:4px;height:60px;margin-top:10px;display:flex;align-items:center;justify-content:center;color:#00bfff;font-size:10px;">分析报告内容</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 侧边导航</h3>
+      <p>左侧图标导航栏 + 主内容区。类似 GitHub / Linear 风格。适合功能多时扩展。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;flex-direction:column;height:160px;border:1px solid #333;border-radius:6px;overflow:hidden;font-size:11px;">
+        <div style="background:#1a1a2e;height:32px;display:flex;align-items:center;padding:0 12px;gap:16px;border-bottom:1px solid #333;">
+          <span style="color:#00bfff;font-weight:bold;font-size:11px;">投研平台</span>
+          <span style="color:#8892b0;font-size:10px;">新建分析</span>
+          <span style="color:#8892b0;font-size:10px;">历史报告</span>
+          <span style="color:#8892b0;font-size:10px;">关注列表</span>
+        </div>
+        <div style="flex:1;background:#0d1117;padding:10px;">
+          <div style="background:#161b22;border-radius:4px;height:20px;margin-bottom:6px;width:50%;opacity:0.6;"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
+            <div style="background:#161b22;border-radius:4px;height:40px;opacity:0.5;"></div>
+            <div style="background:#161b22;border-radius:4px;height:40px;opacity:0.5;"></div>
+          </div>
+          <div style="background:#00bfff22;border:1px solid #00bfff44;border-radius:4px;height:32px;margin-top:8px;display:flex;align-items:center;justify-content:center;color:#00bfff;font-size:10px;">最新分析报告</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 顶部导航</h3>
+      <p>顶部横向导航 + 下方内容区。更简洁，适合内容展示为主的场景。类似 Notion 风格。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;flex-direction:column;height:160px;border:1px solid #333;border-radius:6px;overflow:hidden;font-size:11px;">
+        <div style="background:#1a1a2e;height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #333;">
+          <span style="color:#00bfff;font-weight:bold;font-size:11px;">投研平台</span>
+          <span style="background:#00bfff22;color:#00bfff;border:1px solid #00bfff44;border-radius:4px;padding:2px 8px;font-size:10px;">+ 新建分析</span>
+        </div>
+        <div style="flex:1;background:#0d1117;display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;padding:10px;gap:8px;">
+          <div style="background:#161b22;border-radius:4px;padding:8px;">
+            <div style="color:#00bfff;font-size:9px;margin-bottom:4px;">进行中</div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;margin-bottom:3px;opacity:0.6;"></div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;opacity:0.4;"></div>
+          </div>
+          <div style="background:#161b22;border-radius:4px;padding:8px;">
+            <div style="color:#ffd700;font-size:9px;margin-bottom:4px;">最近完成</div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;margin-bottom:3px;opacity:0.6;"></div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;opacity:0.4;"></div>
+          </div>
+          <div style="background:#161b22;border-radius:4px;padding:8px;">
+            <div style="color:#8892b0;font-size:9px;margin-bottom:4px;">关注列表</div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;margin-bottom:3px;opacity:0.6;"></div>
+            <div style="background:#0d1117;border-radius:3px;height:14px;opacity:0.4;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — 看板式主页</h3>
+      <p>主页展示"进行中 / 最近完成 / 关注列表"三栏。任务管理导向，一眼看清团队工作状态。</p>
+    </div>
+  </div>
+
+</div>
