@@ -9,6 +9,7 @@ from server.routers.notifications import router as notifications_router
 from server.routers.settings import router as settings_router
 from server.routers.search import router as search_router
 from server.routers.stats import router as stats_router
+from server.routers.kline import router as kline_router
 
 app = FastAPI(title="TradingAgents Web API", version="1.0.0")
 
@@ -25,6 +26,7 @@ app.include_router(notifications_router)
 app.include_router(settings_router)
 app.include_router(search_router)
 app.include_router(stats_router)
+app.include_router(kline_router)
 
 
 @app.on_event("startup")
