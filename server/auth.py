@@ -1,6 +1,6 @@
 # server/auth.py
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
@@ -24,7 +24,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(username: str) -> str:
-    expire = datetime.utcnow() + timedelta(hours=_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=_EXPIRE_HOURS)
     return jwt.encode({"sub": username, "exp": expire}, _SECRET_KEY, algorithm=_ALGORITHM)
 
 

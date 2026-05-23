@@ -16,10 +16,12 @@ http.interceptors.request.use((config) => {
 })
 
 // ── Response interceptor: 401 → force re-login ────────────────────────────────
+let _reloading = false
 http.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401 && !err.config?.url?.includes("/auth/login")) {
+    if (err.response?.status === 401 && !err.config?.url?.includes("/auth/login") && !_reloading) {
+      _reloading = true
       localStorage.removeItem("auth_token")
       localStorage.removeItem("auth_username")
       window.location.reload()
