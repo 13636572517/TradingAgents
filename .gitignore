@@ -221,3 +221,6 @@ __marimo__/
 
 # Cache
 **/data_cache/
+
+# Superpowers brainstorming sessions
+.superpowers/
