@@ -17,10 +17,14 @@ app = FastAPI(title="TradingAgents Web API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://47.103.133.232:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "Authorization"],
 )
 
 _auth_dep = [Depends(get_current_user)]
