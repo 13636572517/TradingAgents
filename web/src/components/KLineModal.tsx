@@ -90,7 +90,7 @@ function buildOption(
   tradeDate: string,
 ) {
   const dates  = data.map((d) => d.date)
-  const opens  = data.map((d) => d.open)
+  const _opens = data.map((d) => d.open)
   const highs  = data.map((d) => d.high)
   const lows   = data.map((d) => d.low)
   const closes = data.map((d) => d.close)
