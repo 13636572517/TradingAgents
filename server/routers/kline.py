@@ -139,7 +139,7 @@ def _fetch_akshare_us(ticker: str, start: str, end: str) -> list[dict]:
     import akshare as ak
     df = ak.stock_us_hist(
         symbol=ticker.upper().replace(".US", ""), period="daily",
-        start_date=start, end_date=end, adjust="qfq",
+        start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq",
     )
     col_map = {"日期": "Date", "Date": "Date",
                "开盘": "Open",  "Open": "Open",
@@ -249,13 +249,21 @@ def _fetch_with_fallback(ticker: str, start: str, end: str) -> tuple[list[dict],
 # ── Endpoint ───────────────────────────────────────────────────────────────────
 
 @router.get("/{ticker}")
-def get_kline(ticker: str, range: str = "1Y"):
+def get_kline(ticker: str, time_range: str = "1Y"):
     """Return OHLCV bars for ticker. Tries multiple data sources with graceful fallback."""
-    if range not in _RANGE_DAYS:
-        range = "1Y"
-    start, end = _date_range(range)
+    try:
+        from tradingagents.dataflows.utils import safe_ticker_component
+        ticker = safe_ticker_component(ticker)
+    except ValueError as e:
+        return JSONResponse(
+            content={"ticker": ticker, "range": "1Y", "data": [], "error": str(e)},
+            headers={"Cache-Control": "no-store"},
+        )
+    if time_range not in _RANGE_DAYS:
+        time_range = "1Y"
+    start, end = _date_range(time_range)
     data, error = _fetch_with_fallback(ticker, start, end)
     return JSONResponse(
-        content={"ticker": ticker, "range": range, "data": data, "error": error},
+        content={"ticker": ticker, "range": time_range, "data": data, "error": error},
         headers={"Cache-Control": "public, max-age=3600"},
     )
