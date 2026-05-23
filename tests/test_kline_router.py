@@ -4,6 +4,20 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from server.main import app
+from server.auth import get_current_user
+from server.models import User as _User
+
+
+def _mock_auth():
+    return _User(id=0, username="_test_", is_active=True, hashed_password="")
+
+
+@pytest.fixture(autouse=True)
+def _override_auth():
+    app.dependency_overrides[get_current_user] = _mock_auth
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
 
 client = TestClient(app)
 
