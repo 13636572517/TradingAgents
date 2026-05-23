@@ -39,3 +39,14 @@ class AppSettings(Base):
     quick_model  = Column(String(100), default="qwen3.6-flash")
     backend_url  = Column(Text)                          # optional proxy / custom endpoint
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class User(Base):
+    """认证用户。密码以 bcrypt 哈希存储，不可逆。"""
+    __tablename__ = "users"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    username         = Column(String(50), unique=True, nullable=False, index=True)
+    hashed_password  = Column(String(255), nullable=False)
+    is_active        = Column(Boolean, default=True, nullable=False)
+    created_at       = Column(DateTime, default=datetime.utcnow)
