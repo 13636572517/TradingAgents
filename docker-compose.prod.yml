@@ -18,6 +18,8 @@ services:
       - tradingagents_data:/home/appuser/.tradingagents
     depends_on:
       - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery:
     build:
@@ -30,6 +32,8 @@ services:
       - tradingagents_data:/home/appuser/.tradingagents
     depends_on:
       - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   tradingagents_data:
