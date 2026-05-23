@@ -1,10 +1,39 @@
 // web/src/api/client.ts
 import axios from "axios"
-import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate, ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse } from "../types"
+import type {
+  Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
+  ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
+  AuthToken,
+} from "../types"
 
 const http = axios.create({ baseURL: "/api" })
 
+// ── Request interceptor: inject Bearer token ──────────────────────────────────
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem("auth_token")
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// ── Response interceptor: 401 → force re-login ────────────────────────────────
+http.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 401 && !err.config?.url?.includes("/auth/login")) {
+      localStorage.removeItem("auth_token")
+      localStorage.removeItem("auth_username")
+      window.location.reload()
+    }
+    return Promise.reject(err)
+  }
+)
+
 export const api = {
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  login: (username: string, password: string) =>
+    http.post<AuthToken>("/auth/login", { username, password }).then((r) => r.data),
+
+  // ── Analyses ────────────────────────────────────────────────────────────────
   createAnalysis: (payload: {
     ticker: string
     trade_date: string
@@ -66,15 +95,13 @@ export function openProgressStream(
   onEvent: (event: ProgressEvent) => void,
   onDone: () => void
 ): EventSource {
-  const es = new EventSource(`/api/analyses/${analysisId}/stream`)
+  const token = localStorage.getItem("auth_token")
+  const url = `/api/analyses/${analysisId}/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`
+  const es = new EventSource(url)
   es.onmessage = (e) => {
     const data = JSON.parse(e.data) as ProgressEvent
     onEvent(data)
-    if (
-      data.status === "complete" ||
-      data.status === "failed" ||
-      data.error
-    ) {
+    if (data.status === "complete" || data.status === "failed" || data.error) {
       es.close()
       onDone()
     }

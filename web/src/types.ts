@@ -123,3 +123,14 @@ export interface KLineResponse {
   data: KLineBar[]
   error: string | null
 }
+
+export interface AuthToken {
+  access_token: string
+  token_type: string
+}
+
+export interface AuthUser {
+  id: number
+  username: string
+  is_active: boolean
+}
