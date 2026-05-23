@@ -385,6 +385,15 @@ export function KLineModal({ ticker, tradeDate, decision, onClose }: KLineModalP
           </div>
         )}
 
+        {!loading && !error && !option && (
+          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+            <div className="text-center">
+              <p className="text-2xl mb-3">📭</p>
+              <p>暂无K线数据</p>
+            </div>
+          </div>
+        )}
+
         {!loading && !error && option && (
           <ReactECharts
             option={option}
