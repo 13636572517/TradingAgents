@@ -256,7 +256,7 @@ def get_kline(ticker: str, time_range: str = "1Y"):
         ticker = safe_ticker_component(ticker)
     except ValueError as e:
         return JSONResponse(
-            content={"ticker": ticker, "range": "1Y", "data": [], "error": str(e)},
+            content={"ticker": ticker, "range": time_range, "data": [], "error": str(e)},
             headers={"Cache-Control": "no-store"},
         )
     if time_range not in _RANGE_DAYS:
