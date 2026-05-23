@@ -37,7 +37,7 @@ export function useKLineData(ticker: string, range: TimeRange): KLineState {
     setState((s) => ({ ...s, loading: true, error: null }))
 
     api
-      .getKLine(ticker, range)
+      .getKLine(ticker, range, controller.signal)
       .then((resp) => {
         if (controller.signal.aborted) return
         if (resp.error && resp.data.length === 0) {

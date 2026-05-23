@@ -55,9 +55,9 @@ export const api = {
       )
       .then((r) => r.data),
 
-  getKLine: (ticker: string, time_range = "1Y") =>
+  getKLine: (ticker: string, time_range = "1Y", signal?: AbortSignal) =>
     http
-      .get<KLineResponse>(`/kline/${encodeURIComponent(ticker)}`, { params: { time_range } })
+      .get<KLineResponse>(`/kline/${encodeURIComponent(ticker)}`, { params: { time_range }, signal })
       .then((r) => r.data),
 }
 

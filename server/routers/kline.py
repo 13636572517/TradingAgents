@@ -263,7 +263,8 @@ def get_kline(ticker: str, time_range: str = "1Y"):
         time_range = "1Y"
     start, end = _date_range(time_range)
     data, error = _fetch_with_fallback(ticker, start, end)
+    cache_header = "no-store" if error else "public, max-age=3600"
     return JSONResponse(
         content={"ticker": ticker, "range": time_range, "data": data, "error": error},
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_header},
     )

@@ -37,6 +37,7 @@ def test_kline_all_sources_fail(mock_fetch):
     body = resp.json()
     assert body["data"] == []
     assert body["error"] == "所有数据源均不可用"
+    assert "max-age" not in resp.headers.get("cache-control", "")
 
 
 @pytest.mark.unit

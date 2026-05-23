@@ -375,7 +375,8 @@ export function KLineModal({ ticker, tradeDate, decision, onClose }: KLineModalP
       <div className="flex-1 overflow-hidden">
         {loading && <ChartSkeleton />}
 
-        {!loading && error && (
+        {/* Full error: no data at all */}
+        {!loading && error && !option && (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             <div className="text-center">
               <p className="text-2xl mb-3">📭</p>
@@ -385,12 +386,26 @@ export function KLineModal({ ticker, tradeDate, decision, onClose }: KLineModalP
           </div>
         )}
 
+        {/* No data, no error */}
         {!loading && !error && !option && (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             <div className="text-center">
               <p className="text-2xl mb-3">📭</p>
               <p>暂无K线数据</p>
             </div>
+          </div>
+        )}
+
+        {/* Partial error: has data but also a warning — show chart + inline warning */}
+        {!loading && error && option && (
+          <div className="relative flex-1 h-full">
+            <p className="absolute top-1 left-4 text-xs text-yellow-500 z-10">{error}</p>
+            <ReactECharts
+              option={option}
+              style={{ width: "100%", height: "100%" }}
+              notMerge={true}
+              lazyUpdate={false}
+            />
           </div>
         )}
 
