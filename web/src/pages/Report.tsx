@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { api, openProgressStream } from "../api/client"
 import type { Analysis, ProgressEvent } from "../types"
+import { KLineModal } from "../components/KLineModal"
 
 
 // ── Section tree definition ───────────────────────────────────────────────────
@@ -67,6 +68,7 @@ function AnalysisWorkspace({
   const selectedAnalysts = analysis.analysts ?? []
   const elapsed = useElapsed(isRunning)
   const [stopping, setStopping] = useState(false)
+  const [showKLine, setShowKLine] = useState(false)
 
   const handleStop = async () => {
     if (stopping) return
@@ -127,16 +129,23 @@ function AnalysisWorkspace({
             · {displayDetail}
           </span>
         )}
+        {/* K线图按钮 — 始终显示 */}
+        <button
+          onClick={() => setShowKLine(true)}
+          className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+        >
+          📈 K线图
+        </button>
         {isRunning && !stopping && (
           <button
             onClick={handleStop}
-            className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
+            className="shrink-0 text-xs px-3 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
           >
             ■ 停止分析
           </button>
         )}
         {stopping && (
-          <span className="ml-auto text-xs text-gray-500">停止中…</span>
+          <span className="text-xs text-gray-500">停止中…</span>
         )}
       </div>
 
@@ -270,6 +279,14 @@ function AnalysisWorkspace({
           )}
         </div>
       </div>
+      {showKLine && (
+        <KLineModal
+          ticker={analysis.ticker}
+          tradeDate={analysis.trade_date}
+          decision={analysis.decision}
+          onClose={() => setShowKLine(false)}
+        />
+      )}
     </div>
   )
 }
