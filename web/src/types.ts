@@ -107,3 +107,19 @@ export interface TestResult {
   response_preview?: string
   error?: string
 }
+
+export interface KLineBar {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface KLineResponse {
+  ticker: string
+  range: string
+  data: KLineBar[]
+  error: string | null
+}

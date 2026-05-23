@@ -1,6 +1,6 @@
 // web/src/api/client.ts
 import axios from "axios"
-import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate, ModelsResponse, Provider, TestResult, AggregateStats } from "../types"
+import type { Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate, ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
 
@@ -53,6 +53,11 @@ export const api = {
         "/search",
         { params: { q, limit: 10 } }
       )
+      .then((r) => r.data),
+
+  getKLine: (ticker: string, time_range = "1Y") =>
+    http
+      .get<KLineResponse>(`/kline/${encodeURIComponent(ticker)}`, { params: { time_range } })
       .then((r) => r.data),
 }
 
