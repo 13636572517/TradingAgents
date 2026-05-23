@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 import { NavLink, useNavigate } from "react-router-dom"
 import { api } from "../api/client"
+import { useAuth } from "../context/AuthContext"
 
 const NAV = [
   { to: "/new",      icon: "＋",  label: "新建分析" },
@@ -13,6 +14,7 @@ const NAV = [
 export default function Sidebar() {
   const [unseen, setUnseen] = useState(0)
   const navigate = useNavigate()
+  const { logout, username } = useAuth()
 
   useEffect(() => {
     const refresh = () =>
@@ -65,6 +67,17 @@ export default function Sidebar() {
           </NavLink>
         )
       )}
+
+      {/* 退出按钮，固定在底部 */}
+      <div className="mt-auto">
+        <button
+          onClick={logout}
+          className="w-10 h-10 flex items-center justify-center rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors text-lg"
+          title={`退出 (${username ?? ""})`}
+        >
+          ⏏
+        </button>
+      </div>
     </aside>
   )
 }
