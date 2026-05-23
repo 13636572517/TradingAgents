@@ -1,0 +1,36 @@
+# docker-compose.prod.yml
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    env_file: .env.prod
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    depends_on:
+      - redis
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    command: celery -A server.celery_app worker --loglevel=info --concurrency=2
+    restart: unless-stopped
+    env_file: .env.prod
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    depends_on:
+      - redis
+
+volumes:
+  tradingagents_data:
+  redis_data:
