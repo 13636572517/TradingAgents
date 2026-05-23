@@ -140,6 +140,17 @@ server = [
 
 ---
 
+## 端口策略
+
+宿主机已有项目占用端口 80（nginx）和 8000。因此：
+
+- uvicorn 容器在内部跑 8000，**映射到宿主机 `127.0.0.1:8001`**（仅本机可访问）
+- 宿主机 nginx 新增一个 server 块，监听外部 **8080** 端口，反向代理到 `127.0.0.1:8001`
+- 不在 docker-compose 里跑 nginx 容器，复用宿主机已有的 nginx
+- 外部访问地址：`http://47.103.133.232:8080`
+
+---
+
 ## docker-compose.prod.yml
 
 ```yaml
@@ -155,12 +166,13 @@ services:
       context: .
       dockerfile: Dockerfile.prod
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"   # 只绑定本机，由宿主 nginx 代理
     env_file: .env.prod
     volumes:
       - tradingagents_data:/home/appuser/.tradingagents
     depends_on:
       - redis
-    # 不暴露端口到宿主机，由 nginx 代理
 
   celery:
     build:
@@ -174,16 +186,6 @@ services:
     depends_on:
       - redis
 
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - server
-
 volumes:
   tradingagents_data:
   redis_data:
@@ -191,17 +193,19 @@ volumes:
 
 ---
 
-## nginx/default.conf
+## 宿主机 nginx 配置（新增 server 块）
+
+在宿主机 nginx 的 sites-enabled 目录新增文件 `/etc/nginx/sites-enabled/tradingagents.conf`：
 
 ```nginx
 server {
-    listen 80;
+    listen 8080;
     server_name _;
 
     client_max_body_size 10m;
 
     location / {
-        proxy_pass         http://server:8000;
+        proxy_pass         http://127.0.0.1:8001;
         proxy_set_header   Host $host;
         proxy_set_header   X-Real-IP $remote_addr;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -210,8 +214,8 @@ server {
     }
 
     # SSE（分析进度流）需要关闭缓冲
-    location /api/analyses/ {
-        proxy_pass         http://server:8000;
+    location ~ ^/api/analyses/.*/(stream|stop)$ {
+        proxy_pass         http://127.0.0.1:8001;
         proxy_set_header   Host $host;
         proxy_set_header   X-Real-IP $remote_addr;
         proxy_buffering    off;
@@ -219,6 +223,11 @@ server {
         proxy_read_timeout 600s;
     }
 }
+```
+
+部署后执行：
+```bash
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ---
@@ -245,7 +254,7 @@ echo "==> 等待服务启动..."
 sleep 5
 docker compose -f docker-compose.prod.yml ps
 
-echo "==> 部署完成。访问 http://47.103.133.232"
+echo "==> 部署完成。访问 http://47.103.133.232:8080"
 ```
 
 ---
