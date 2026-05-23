@@ -55,6 +55,28 @@ def test_kline_cache_header():
 
 
 @pytest.mark.unit
+def test_kline_rejects_invalid_ticker():
+    """Path traversal attempts must not return valid kline data.
+
+    FastAPI/Starlette rejects percent-encoded slashes (%2F) in path segments at
+    the routing layer before the handler runs, returning 404.  Dot-only segments
+    that *do* reach the handler (e.g. ``...``) are caught by
+    safe_ticker_component and return 200 with an error payload and no-store.
+    """
+    # %2F in a path segment → rejected at framework level before handler runs
+    resp = client.get("/api/kline/..%2F..%2Fetc")
+    assert resp.status_code == 404
+
+    # All-dots segment that reaches the handler → safe_ticker_component rejects it
+    resp2 = client.get("/api/kline/...")
+    assert resp2.status_code == 200
+    body = resp2.json()
+    assert body["data"] == []
+    assert body["error"] is not None
+    assert "no-store" in resp2.headers.get("cache-control", "").lower()
+
+
+@pytest.mark.unit
 def test_short_code():
     from server.routers.kline import _short_code, _bs_code, _hk_code, _jq_code
     assert _short_code("600519.SS") == "600519"
@@ -72,3 +94,5 @@ def test_is_etf():
     assert _is_etf("510050.SS") is True
     assert _is_etf("601985.SS") is False
     assert _is_etf("AAPL") is False
+    assert _is_etf("520000.SS") is True
+    assert _is_etf("588000.SS") is True
