@@ -69,6 +69,8 @@ export const api = {
     http.post<Settings>("/settings", payload).then((r) => r.data),
   getModels: (provider: string) =>
     http.get<ModelsResponse>("/settings/models", { params: { provider } }).then((r) => r.data),
+  getLiveModels: () =>
+    http.get<{ models: { id: string; free_tier: boolean }[]; source: string }>("/settings/live-models").then((r) => r.data),
   getProviders: () => http.get<Provider[]>("/settings/providers").then((r) => r.data),
   testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
   getFutuStatus: () =>

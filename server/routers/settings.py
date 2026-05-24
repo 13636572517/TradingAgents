@@ -88,6 +88,81 @@ class ModelsResponse(BaseModel):
     deep: List[ModelOption]
 
 
+_DASHSCOPE_BASE = {
+    "qwen-cn": "https://dashscope.aliyuncs.com",
+    "qwen":    "https://dashscope-intl.aliyuncs.com",
+}
+
+# Non-text capability keywords — models with these in the name are excluded
+_EXCLUDE_CAPS = [
+    "tts", "asr", "vl", "image", "realtime", "omni", "speech",
+    "embedding", "embed", "ocr", "translate", "livetranslate",
+    "s2s", "audio", "video", "wan", "vision",
+]
+
+# Model ID prefixes / exact IDs known to include a free-tier quota on DashScope.
+# Source: https://help.aliyun.com/zh/model-studio/getting-started/first-api-call-to-qwen
+_FREE_TIER_PREFIXES = [
+    "qwen-long", "qwen-turbo", "qwen-plus", "qwen-max",
+    "qwen3-", "qwen2.5-", "qwen2-", "qwen1.5-",
+    "deepseek-r1", "deepseek-v3",
+    "qwq-", "qvq-",
+]
+
+
+class LiveModelItem(BaseModel):
+    id: str
+    free_tier: bool    # True = known DashScope free-tier quota exists
+
+
+class LiveModelsResponse(BaseModel):
+    models: List[LiveModelItem]
+    source: str        # "live" or "static" (fallback)
+
+
+@router.get("/live-models", response_model=LiveModelsResponse)
+def get_live_models(db: Session = Depends(get_db)):
+    """Fetch text-only models from DashScope /models endpoint using saved API key."""
+    row = _get_or_create(db)
+    if not row.api_key:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="请先配置并保存 API Key")
+
+    provider = row.provider or "qwen-cn"
+    base = _DASHSCOPE_BASE.get(provider)
+    if not base:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Provider '{provider}' 不支持实时模型列表")
+
+    try:
+        import httpx
+        with httpx.Client(trust_env=False, timeout=12) as client:
+            resp = client.get(
+                f"{base}/compatible-mode/v1/models",
+                headers={"Authorization": f"Bearer {row.api_key}"},
+            )
+            resp.raise_for_status()
+        raw: List[str] = [m["id"] for m in resp.json().get("data", [])]
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"无法获取模型列表: {exc}")
+
+    def _is_text(model_id: str) -> bool:
+        low = model_id.lower()
+        return not any(kw in low for kw in _EXCLUDE_CAPS)
+
+    def _is_free(model_id: str) -> bool:
+        low = model_id.lower()
+        return any(low.startswith(p) or low == p.rstrip("-") for p in _FREE_TIER_PREFIXES)
+
+    items = [
+        LiveModelItem(id=m, free_tier=_is_free(m))
+        for m in sorted(raw)
+        if _is_text(m)
+    ]
+    return LiveModelsResponse(models=items, source="live")
+
+
 @router.get("/models", response_model=ModelsResponse)
 def get_models(provider: str = "qwen-cn"):
     """Return model catalog for a given provider from the built-in model_catalog."""
