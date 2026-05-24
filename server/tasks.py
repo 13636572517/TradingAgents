@@ -300,7 +300,18 @@ def rerun_stage(self, analysis_id: str, stage: str):
         config["checkpoint_enabled"] = False
         if not os.getenv("FUTU_ENABLED", "").lower() in ("1", "true", "yes"):
             config["futu_enabled"] = False
-        config = _apply_llm_config(config, record.llm_config or {})
+        # Always use CURRENT settings for rerun so the user can switch models
+        # before retrying a failed analysis.
+        from server.models import AppSettings
+        current_settings = db.get(AppSettings, 1)
+        current_llm_config = {
+            "provider":    current_settings.provider    if current_settings else None,
+            "api_key":     current_settings.api_key     if current_settings else None,
+            "deep_model":  current_settings.deep_model  if current_settings else None,
+            "quick_model": current_settings.quick_model if current_settings else None,
+            "backend_url": current_settings.backend_url if current_settings else None,
+        } if current_settings else (record.llm_config or {})
+        config = _apply_llm_config(config, current_llm_config)
 
         from server.usage import CombinedUsageTracker
         usage_tracker = CombinedUsageTracker(
