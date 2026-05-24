@@ -9,18 +9,33 @@ RUN npm run build
 # ── Stage 2: 构建 Python 虚拟环境 ────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
  && pip config set global.trusted-host mirrors.aliyun.com
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /build
-COPY pyproject.toml ./
+
+# ── 依赖层（仅 pyproject.toml 变化时才重新下载）────────────────────────────
+COPY pyproject.toml scripts/extract_deps.py ./
+RUN python3 extract_deps.py
+# --mount=type=cache 让 pip 在宿主机保留下载缓存；
+# 即使 Docker 层缓存失效，重装时也无需重新下载 whl 文件（通常 <30s）
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -i https://mirrors.aliyun.com/pypi/simple/ \
+        --trusted-host mirrors.aliyun.com \
+        -r requirements.txt
+
+# ── 源码层（代码更新时只构建本包，不重新下载依赖）────────────────────────────
 COPY tradingagents/ ./tradingagents/
 COPY server/ ./server/
 COPY cli/ ./cli/
-RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com .
+COPY manage_users.py ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -i https://mirrors.aliyun.com/pypi/simple/ \
+        --trusted-host mirrors.aliyun.com \
+        --no-deps \
+        .
 
 # ── Stage 3: 最终运行时镜像 ──────────────────────────────────────────────────
 FROM python:3.12-slim
