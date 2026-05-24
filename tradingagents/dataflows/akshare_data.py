@@ -203,60 +203,85 @@ def get_cn_stock_data(
 
 # ── A-share news ───────────────────────────────────────────────────────────────
 
+def _parse_news_rows(
+    df,
+    start_dt,
+    end_dt,
+    limit: int = 20,
+    source_label: str = "",
+) -> tuple[str, int]:
+    """Shared formatter for news DataFrames — returns (news_str, count)."""
+    news_str = ""
+    count = 0
+    for _, row in df.iterrows():
+        pub_time = str(row.get("发布时间", row.get("时间", "")))
+        if pub_time:
+            try:
+                pub_dt = datetime.strptime(pub_time[:10], "%Y-%m-%d")
+                if not (start_dt <= pub_dt <= end_dt + relativedelta(days=1)):
+                    continue
+            except (ValueError, TypeError):
+                continue
+        title = row.get("新闻标题", row.get("标题", row.get("title", "No title")))
+        source = row.get("文章来源", row.get("来源", source_label or "Unknown"))
+        link = row.get("新闻链接", row.get("链接", ""))
+        content = str(row.get("新闻内容", row.get("内容", "")))
+        news_str += f"### {title} (来源: {source})\n"
+        if content and len(content) > 10:
+            news_str += content[:300] + ("…" if len(content) > 300 else "") + "\n"
+        if link:
+            news_str += f"Link: {link}\n"
+        news_str += "\n"
+        count += 1
+        if count >= limit:
+            break
+    return news_str, count
+
+
 def get_cn_news(
     ticker: str,
     start_date: str,
     end_date: str,
 ) -> str:
-    """Get stock-specific news from Eastmoney (东方财富) for an A-share ticker."""
+    """Get stock-specific news for an A-share ticker.
+
+    Source priority:
+    1. Eastmoney (东方财富) — ak.stock_news_em
+    2. Cailian (财联社 CLS) — ak.stock_news_cu  [fallback]
+    """
     try:
         import akshare as ak
     except ImportError:
         raise AkShareError("akshare is not installed")
+
+    short_code = _yf_to_short_code(ticker)
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+    # 1) Eastmoney
     try:
-        short_code = _yf_to_short_code(ticker)
         news_df = ak.stock_news_em(symbol=short_code)
-        if news_df is None or news_df.empty:
-            return f"No news found for {ticker}"
-
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-
-        news_str = ""
-        count = 0
-        for _, row in news_df.iterrows():
-            pub_time = str(row.get("发布时间", ""))
-            if pub_time:
-                try:
-                    pub_dt = datetime.strptime(pub_time[:10], "%Y-%m-%d")
-                    if not (start_dt <= pub_dt <= end_dt + relativedelta(days=1)):
-                        continue
-                except (ValueError, TypeError):
-                    continue  # skip unparseable dates
-
-            title = row.get("新闻标题", row.get("标题", "No title"))
-            source = row.get("文章来源", row.get("来源", "Unknown"))
-            link = row.get("新闻链接", row.get("链接", ""))
-            content = str(row.get("新闻内容", ""))
-
-            news_str += f"### {title} (来源: {source})\n"
-            if content and len(content) > 10:
-                news_str += content[:300] + ("…" if len(content) > 300 else "") + "\n"
-            if link:
-                news_str += f"Link: {link}\n"
-            news_str += "\n"
-            count += 1
-            if count >= 20:
-                break
-
-        if count == 0:
-            return f"No news found for {ticker} between {start_date} and {end_date}"
-        return f"## {ticker} 新闻资讯 ({start_date} 至 {end_date}):\n\n{news_str}"
-    except AkShareError:
-        raise
+        if news_df is not None and not news_df.empty:
+            news_str, count = _parse_news_rows(news_df, start_dt, end_dt, limit=20)
+            if count > 0:
+                return f"## {ticker} 新闻资讯 ({start_date} 至 {end_date}):\n\n{news_str}"
+            logger.warning("get_cn_news: Eastmoney returned 0 in-range articles for %s", ticker)
     except Exception as e:
-        logger.warning("AkShare get_cn_news failed for %s: %s", ticker, e)
-        raise AkShareError(f"AkShare news fetch failed for {ticker}: {e}") from e
+        logger.warning("get_cn_news: Eastmoney failed for %s: %s", ticker, e)
+
+    # 2) Cailian (财联社)
+    try:
+        cls_df = ak.stock_news_cu(symbol=short_code)
+        if cls_df is not None and not cls_df.empty:
+            news_str, count = _parse_news_rows(cls_df, start_dt, end_dt, limit=20,
+                                               source_label="财联社")
+            if count > 0:
+                logger.info("get_cn_news: serving %s news from 财联社", ticker)
+                return f"## {ticker} 新闻资讯 ({start_date} 至 {end_date}):\n\n{news_str}"
+    except Exception as e:
+        logger.warning("get_cn_news: 财联社 failed for %s: %s", ticker, e)
+
+    raise AkShareError(f"All CN news sources failed for {ticker}")
 
 
 def get_cn_global_news(
@@ -264,7 +289,13 @@ def get_cn_global_news(
     look_back_days: Optional[int] = None,
     limit: Optional[int] = None,
 ) -> str:
-    """Get Chinese macro/market news using Eastmoney index news as market proxy."""
+    """Get Chinese macro/market news.
+
+    Source priority:
+    1. Eastmoney (东方财富) index news — ak.stock_news_em on 000001/399001
+    2. Cailian Telegraph (财联社电报) — ak.news_cls_telegraph  [fallback]
+    3. CCTV Finance (央视财经) — ak.news_cctv                  [fallback]
+    """
     from .config import get_config
     config = get_config()
     if look_back_days is None:
@@ -276,12 +307,16 @@ def get_cn_global_news(
         import akshare as ak
     except ImportError:
         raise AkShareError("akshare is not installed")
+
+    curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+    start_dt = curr_dt - relativedelta(days=look_back_days)
+    start_date_str = start_dt.strftime("%Y-%m-%d")
+
+    # 1) Eastmoney index news (000001 沪指 / 399001 深成指)
     try:
-        market_symbols = ["000001", "399001"]
         all_articles: list = []
         seen_titles: set = set()
-
-        for sym in market_symbols:
+        for sym in ["000001", "399001"]:
             try:
                 df = ak.stock_news_em(symbol=sym)
                 if df is not None and not df.empty:
@@ -296,47 +331,43 @@ def get_cn_global_news(
                 continue
             if len(all_articles) >= limit * 2:
                 break
-
-        if not all_articles:
-            return f"No Chinese market news found for {curr_date}"
-
-        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
-        start_dt = curr_dt - relativedelta(days=look_back_days)
-
-        news_str = ""
-        count = 0
-        for row in all_articles:
-            pub_time = str(row.get("发布时间", ""))
-            if pub_time:
-                try:
-                    pub_dt = datetime.strptime(pub_time[:10], "%Y-%m-%d")
-                    if not (start_dt <= pub_dt <= curr_dt + relativedelta(days=1)):
-                        continue
-                except (ValueError, TypeError):
-                    pass
-
-            title = row.get("新闻标题", row.get("标题", "No title"))
-            source = row.get("文章来源", row.get("来源", "Unknown"))
-            link = row.get("新闻链接", row.get("链接", ""))
-
-            news_str += f"### {title} (来源: {source})\n"
-            if link:
-                news_str += f"Link: {link}\n"
-            news_str += "\n"
-            count += 1
-            if count >= limit:
-                break
-
-        if count == 0:
-            return f"No Chinese market news found for {curr_date}"
-
-        start_date_str = start_dt.strftime("%Y-%m-%d")
-        return f"## 中国市场宏观新闻 ({start_date_str} 至 {curr_date}):\n\n{news_str}"
-    except AkShareError:
-        raise
+        if all_articles:
+            news_str, count = _parse_news_rows(
+                __import__("pandas").DataFrame(all_articles),
+                start_dt, curr_dt, limit=limit,
+            )
+            if count > 0:
+                return f"## 中国市场宏观新闻 ({start_date_str} 至 {curr_date}):\n\n{news_str}"
     except Exception as e:
-        logger.warning("AkShare get_cn_global_news failed: %s", e)
-        raise AkShareError(f"AkShare global news failed: {e}") from e
+        logger.warning("get_cn_global_news: Eastmoney index news failed: %s", e)
+
+    # 2) Cailian Telegraph (财联社电报)
+    try:
+        cls_df = ak.news_cls_telegraph(symbol="全部")
+        if cls_df is not None and not cls_df.empty:
+            news_str, count = _parse_news_rows(
+                cls_df, start_dt, curr_dt, limit=limit, source_label="财联社电报"
+            )
+            if count > 0:
+                logger.info("get_cn_global_news: serving from 财联社电报")
+                return f"## 中国市场宏观新闻 ({start_date_str} 至 {curr_date}):\n\n{news_str}"
+    except Exception as e:
+        logger.warning("get_cn_global_news: 财联社电报 failed: %s", e)
+
+    # 3) CCTV Finance (央视财经)
+    try:
+        cctv_df = ak.news_cctv(date=curr_date.replace("-", ""))
+        if cctv_df is not None and not cctv_df.empty:
+            news_str, count = _parse_news_rows(
+                cctv_df, start_dt, curr_dt, limit=limit, source_label="央视财经"
+            )
+            if count > 0:
+                logger.info("get_cn_global_news: serving from 央视财经")
+                return f"## 中国市场宏观新闻 ({start_date_str} 至 {curr_date}):\n\n{news_str}"
+    except Exception as e:
+        logger.warning("get_cn_global_news: 央视财经 failed: %s", e)
+
+    raise AkShareError("All CN global news sources failed (Eastmoney / 财联社 / 央视)")
 
 
 # ── A-share technical indicators (computed via stockstats on AkShare OHLCV) ───
