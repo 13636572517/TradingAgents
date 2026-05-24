@@ -120,35 +120,58 @@ def _fetch_akshare_a(ticker: str, start: str, end: str) -> list[dict]:
     import akshare as ak
     s_date = start.replace("-", "")
     e_date = end.replace("-", "")
+    code = _short_code(ticker)
+    col_map = {"日期": "Date", "开盘": "Open", "最高": "High",
+               "最低": "Low", "收盘": "Close", "成交量": "Volume"}
+
     if _is_etf(ticker):
-        code = _short_code(ticker)
-        col_map = {"日期": "Date", "开盘": "Open", "最高": "High",
-                   "最低": "Low", "收盘": "Close", "成交量": "Volume"}
-        # Primary: fund_etf_hist_em (returns all history, then filter)
+        # 1) fund_etf_hist_em — Eastmoney
         try:
             df = ak.fund_etf_hist_em(symbol=code, period="daily", adjust="qfq")
             rows = _normalize(df, col_map)
             filtered = [r for r in rows if start <= r["date"] <= end]
             if filtered:
                 return filtered
-            logger.warning("kline: fund_etf_hist_em returned empty for %s, trying stock_zh_a_hist", ticker)
+            logger.warning("kline: fund_etf_hist_em empty for %s", ticker)
         except Exception as e:
-            logger.warning("kline: fund_etf_hist_em failed for %s: %s, trying stock_zh_a_hist", ticker, e)
-        # Fallback: stock_zh_a_hist also serves some ETF codes
-        df = ak.stock_zh_a_hist(
-            symbol=code, period="daily",
-            start_date=s_date, end_date=e_date, adjust="qfq",
-        )
-        rows = _normalize(df, col_map)
-        return rows
+            logger.warning("kline: fund_etf_hist_em failed for %s: %s", ticker, e)
+        # 2) stock_zh_a_hist — Eastmoney (ETFs trade as stocks)
+        try:
+            df = ak.stock_zh_a_hist(symbol=code, period="daily",
+                                    start_date=s_date, end_date=e_date, adjust="qfq")
+            rows = _normalize(df, col_map)
+            if rows:
+                return rows
+        except Exception as e:
+            logger.warning("kline: stock_zh_a_hist failed for %s: %s", ticker, e)
+        # 3) stock_zh_a_hist_163 — 163.com/NetEase (different backend from Eastmoney)
+        try:
+            df = ak.stock_zh_a_hist_163(symbol=code, start_date=s_date, end_date=e_date)
+            col_map_163 = {"日期": "Date", "开盘价": "Open", "最高价": "High",
+                           "最低价": "Low", "收盘价": "Close", "成交量": "Volume"}
+            rows = _normalize(df, col_map_163)
+            if rows:
+                return rows
+        except Exception as e:
+            logger.warning("kline: stock_zh_a_hist_163 failed for %s: %s", ticker, e)
+        return []
     else:
-        df = ak.stock_zh_a_hist(
-            symbol=_short_code(ticker), period="daily",
-            start_date=s_date, end_date=e_date, adjust="qfq",
-        )
-        col_map = {"日期": "Date", "开盘": "Open", "最高": "High",
-                   "最低": "Low", "收盘": "Close", "成交量": "Volume"}
-        return _normalize(df, col_map)
+        # 1) stock_zh_a_hist — Eastmoney
+        try:
+            df = ak.stock_zh_a_hist(
+                symbol=code, period="daily",
+                start_date=s_date, end_date=e_date, adjust="qfq",
+            )
+            rows = _normalize(df, col_map)
+            if rows:
+                return rows
+        except Exception as e:
+            logger.warning("kline: stock_zh_a_hist failed for %s: %s", ticker, e)
+        # 2) stock_zh_a_hist_163 — 163.com fallback
+        df = ak.stock_zh_a_hist_163(symbol=code, start_date=s_date, end_date=e_date)
+        col_map_163 = {"日期": "Date", "开盘价": "Open", "最高价": "High",
+                       "最低价": "Low", "收盘价": "Close", "成交量": "Volume"}
+        return _normalize(df, col_map_163)
 
 
 # ── Source: AkShare HK ────────────────────────────────────────────────────────
