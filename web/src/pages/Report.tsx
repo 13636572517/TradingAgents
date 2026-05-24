@@ -43,17 +43,21 @@ function StatusDot({ state }: { state: "done" | "active" | "pending" }) {
 }
 
 // ── Elapsed timer ─────────────────────────────────────────────────────────────
-function useElapsed(running: boolean) {
-  const [elapsed, setElapsed] = useState(0)
+function fmtElapsed(s: number) {
+  if (s <= 0) return ""
+  return s >= 60 ? `${Math.floor(s / 60)}分${s % 60}秒` : `${s}秒`
+}
+function useElapsed(running: boolean, startedAt: string | null) {
+  const getSeconds = () =>
+    startedAt ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0
+  const [elapsed, setElapsed] = useState(getSeconds)
   useEffect(() => {
     if (!running) return
+    setElapsed(getSeconds())
     const t = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(t)
-  }, [running])
-  if (elapsed === 0) return ""
-  return elapsed >= 60
-    ? `${Math.floor(elapsed / 60)}分${elapsed % 60}秒`
-    : `${elapsed}秒`
+  }, [running, startedAt])
+  return fmtElapsed(elapsed)
 }
 
 // ── Two-panel workspace (running + complete) ──────────────────────────────────
@@ -70,7 +74,7 @@ function AnalysisWorkspace({
 }) {
   const result = analysis.result ?? {}
   const selectedAnalysts = analysis.analysts ?? []
-  const elapsed = useElapsed(isRunning)
+  const elapsed = useElapsed(isRunning, analysis.created_at)
   const [stopping, setStopping] = useState(false)
   const [showKLine, setShowKLine] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)

@@ -189,7 +189,13 @@ def run_analysis(self, analysis_id: str):
         final_state: dict = {}
         result_cache: dict = {}
 
+        from server.usage import APICallLimitError
         for chunk in ta.graph.stream(init_state, **args):
+            if usage_tracker.total_calls > usage_tracker.max_calls:
+                raise APICallLimitError(
+                    f"API 调用次数已达上限 ({usage_tracker.max_calls} 次），分析已自动中止。"
+                    f"如需继续，请人工确认后重新运行。"
+                )
             final_state.update(chunk)
 
             # Save any newly-appeared partial results immediately
@@ -354,7 +360,13 @@ def rerun_stage(self, analysis_id: str, stage: str):
         final_state: dict = {}
         result_cache: dict = dict(existing)
 
+        from server.usage import APICallLimitError
         for chunk in ta.graph.stream(init_state, **args):
+            if usage_tracker.total_calls > usage_tracker.max_calls:
+                raise APICallLimitError(
+                    f"API 调用次数已达上限 ({usage_tracker.max_calls} 次），分析已自动中止。"
+                    f"如需继续，请人工确认后重新运行。"
+                )
             final_state.update(chunk)
 
             # ── Analyst-only rerun: stop as soon as target report appears ──

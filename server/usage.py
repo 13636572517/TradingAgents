@@ -86,16 +86,25 @@ class _Slot:
 
 # ── Combined tracker (single callback, routes by model name) ───────────────────
 
+class APICallLimitError(RuntimeError):
+    """Raised when an analysis exceeds its per-run API call budget."""
+
+
 class CombinedUsageTracker(BaseCallbackHandler):
     """Single callback handler that routes events to quick/deep slots by model name."""
 
-    def __init__(self, quick_model: str, deep_model: str) -> None:
+    def __init__(self, quick_model: str, deep_model: str, max_calls: int = 300) -> None:
         super().__init__()
         self._lock = threading.Lock()
         self.quick = _Slot(quick_model, "quick")
         self.deep  = _Slot(deep_model,  "deep")
+        self.max_calls = max_calls
         # thread-local to remember which slot fired on_chat_model_start
         self._active: threading.local = threading.local()
+
+    @property
+    def total_calls(self) -> int:
+        return self.quick.calls + self.deep.calls
 
     def _slot_for(self, model_hint: str | None) -> _Slot:
         """Return the slot matching model_hint, defaulting to quick."""
