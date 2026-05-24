@@ -1,5 +1,5 @@
 // web/src/pages/Report.tsx
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -14,19 +14,19 @@ const TREE = [
     group: "分析师团队",
     icon: "🔍",
     items: [
-      { key: "fundamentals_report",    label: "基本面分析师", icon: "📊", analyst: "fundamentals" },
-      { key: "sentiment_report",       label: "情绪分析师",   icon: "💬", analyst: "sentiment" },
-      { key: "news_report",            label: "新闻分析师",   icon: "📰", analyst: "news" },
-      { key: "market_report",          label: "技术分析师",   icon: "📈", analyst: "market" },
+      { key: "fundamentals_report",    label: "基本面分析师", icon: "📊", analyst: "fundamentals", stage: "fundamentals" },
+      { key: "sentiment_report",       label: "情绪分析师",   icon: "💬", analyst: "sentiment",   stage: "social" },
+      { key: "news_report",            label: "新闻分析师",   icon: "📰", analyst: "news",        stage: "news" },
+      { key: "market_report",          label: "技术分析师",   icon: "📈", analyst: "market",      stage: "market" },
     ],
   },
   {
     group: "投研决策",
     icon: "🧠",
     items: [
-      { key: "investment_plan",         label: "投研总结",   icon: "🧠", analyst: null },
-      { key: "trader_investment_plan",  label: "交易建议",   icon: "💼", analyst: null },
-      { key: "final_trade_decision",    label: "最终决策",   icon: "📋", analyst: null },
+      { key: "investment_plan",         label: "投研总结",  icon: "🧠", analyst: null, stage: "investment_plan" },
+      { key: "trader_investment_plan",  label: "交易建议",  icon: "💼", analyst: null, stage: "trader_investment_plan" },
+      { key: "final_trade_decision",    label: "最终决策",  icon: "📋", analyst: null, stage: "final_trade_decision" },
     ],
   },
 ]
@@ -70,6 +70,7 @@ function AnalysisWorkspace({
   const [stopping, setStopping] = useState(false)
   const [showKLine, setShowKLine] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [rerunningStageName, setRerunningStageName] = useState<string | null>(null)
 
   const handleStop = async () => {
     if (stopping) return
@@ -81,6 +82,19 @@ function AnalysisWorkspace({
       setStopping(false)
     }
   }
+
+  const handleRerun = useCallback(async (stage: string) => {
+    if (rerunningStageName || isRunning) return
+    setRerunningStageName(stage)
+    try {
+      await api.rerunStage(analysis.id, stage)
+      onStopped()
+    } catch (e: any) {
+      alert(e?.response?.data?.detail ?? "发起重新分析失败")
+    } finally {
+      setRerunningStageName(null)
+    }
+  }, [analysis.id, isRunning, rerunningStageName, onStopped])
 
   // All available items (filtered by selected analysts)
   const allItems = TREE.flatMap((g) =>
@@ -187,23 +201,42 @@ function AnalysisWorkspace({
                     ? "active"
                     : "pending"
 
+                  const isRerunning = rerunningStageName === item.stage
                   return (
-                    <button
+                    <div
                       key={item.key}
-                      onClick={() => hasContent && setActiveKey(item.key)}
-                      disabled={!hasContent}
-                      className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm transition-colors ${
+                      className={`group w-full flex items-center text-sm transition-colors ${
                         activeKey === item.key && hasContent
-                          ? "bg-accent/15 text-white border-r-2 border-accent"
+                          ? "bg-accent/15 border-r-2 border-accent"
                           : hasContent
-                          ? "hover:bg-white/5 text-gray-300"
-                          : "text-gray-600 cursor-default"
+                          ? "hover:bg-white/5"
+                          : ""
                       }`}
                     >
-                      <StatusDot state={state} />
-                      <span>{item.icon}</span>
-                      <span className="truncate">{item.label}</span>
-                    </button>
+                      <button
+                        onClick={() => hasContent && setActiveKey(item.key)}
+                        disabled={!hasContent}
+                        className={`flex-1 text-left px-3 py-2 flex items-center gap-2 min-w-0 ${
+                          activeKey === item.key && hasContent ? "text-white"
+                          : hasContent ? "text-gray-300"
+                          : "text-gray-600 cursor-default"
+                        }`}
+                      >
+                        <StatusDot state={state} />
+                        <span>{item.icon}</span>
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                      {hasContent && !isRunning && (
+                        <button
+                          onClick={() => handleRerun(item.stage)}
+                          disabled={!!rerunningStageName}
+                          title={`重新分析: ${item.label}`}
+                          className="shrink-0 px-1.5 py-1 mr-1 text-xs text-gray-600 hover:text-accent hover:bg-accent/10 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-30"
+                        >
+                          {isRerunning ? "…" : "↺"}
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -267,6 +300,23 @@ function AnalysisWorkspace({
         <div className="flex-1 overflow-y-auto">
           {activeContent ? (
             <div className="p-6 max-w-4xl">
+              {!isRunning && (() => {
+                const activeItem = TREE.flatMap((g) => g.items).find((it) => it.key === activeKey)
+                return activeItem ? (
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-gray-400">
+                      {activeItem.icon} {activeItem.label}
+                    </h2>
+                    <button
+                      onClick={() => handleRerun(activeItem.stage)}
+                      disabled={!!rerunningStageName}
+                      className="text-xs px-3 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {rerunningStageName === activeItem.stage ? "提交中…" : "↺ 重新分析此环节"}
+                    </button>
+                  </div>
+                ) : null
+              })()}
               <div className="report-content">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeContent}</ReactMarkdown>
               </div>

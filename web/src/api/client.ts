@@ -3,7 +3,7 @@ import axios from "axios"
 import type {
   Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
   ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
-  AuthToken,
+  AuthToken, AuthUser, AdminUser,
 } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
@@ -34,6 +34,7 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────────────────────────
   login: (username: string, password: string) =>
     http.post<AuthToken>("/auth/login", { username, password }).then((r) => r.data),
+  getMe: () => http.get<AuthUser>("/auth/me").then((r) => r.data),
 
   // ── Analyses ────────────────────────────────────────────────────────────────
   createAnalysis: (payload: {
@@ -53,6 +54,8 @@ export const api = {
 
   deleteAnalysis: (id: string) => http.delete(`/analyses/${id}`),
   stopAnalysis: (id: string) => http.post(`/analyses/${id}/stop`),
+  rerunStage: (id: string, stage: string) =>
+    http.post<Analysis>(`/analyses/${id}/rerun/${stage}`).then((r) => r.data),
 
   getNotificationCount: () =>
     http
@@ -90,6 +93,14 @@ export const api = {
     http
       .get<KLineResponse>(`/kline/${encodeURIComponent(ticker)}`, { params: { time_range }, signal })
       .then((r) => r.data),
+
+  // ── Admin ─────────────────────────────────────────────────────────────────────
+  adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),
+  adminCreateUser: (payload: { username: string; password: string; is_admin: boolean }) =>
+    http.post<AdminUser>("/admin/users", payload).then((r) => r.data),
+  adminUpdateUser: (id: number, payload: { password?: string; is_active?: boolean; is_admin?: boolean }) =>
+    http.put<AdminUser>(`/admin/users/${id}`, payload).then((r) => r.data),
+  adminDeleteUser: (id: number) => http.delete(`/admin/users/${id}`),
 }
 
 export function openProgressStream(

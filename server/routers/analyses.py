@@ -50,6 +50,44 @@ def create_analysis(
     return record
 
 
+_VALID_RERUN_STAGES = {
+    "market", "social", "news", "fundamentals",
+    "investment_plan", "trader_investment_plan", "final_trade_decision",
+}
+
+
+@router.post("/{analysis_id}/rerun/{stage}", response_model=AnalysisOut)
+def rerun_stage_endpoint(
+    analysis_id: str,
+    stage: str,
+    db: Session = Depends(get_db),
+):
+    """Re-run a single stage of a completed/failed/stopped analysis."""
+    if stage not in _VALID_RERUN_STAGES:
+        raise HTTPException(status_code=400, detail=f"Invalid stage '{stage}'")
+
+    record = db.get(Analysis, analysis_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if record.status in ("pending", "running"):
+        raise HTTPException(status_code=400, detail="Analysis is already running")
+
+    record.status = "pending"
+    record.stage = "pending"
+    record.stage_detail = "等待重新分析…"
+    record.error = None
+    db.commit()
+    db.refresh(record)
+
+    from server.tasks import rerun_stage
+    task = rerun_stage.delay(record.id, stage)
+    record.celery_task_id = task.id
+    db.commit()
+    db.refresh(record)
+
+    return record
+
+
 @router.post("/{analysis_id}/stop", status_code=204)
 def stop_analysis(analysis_id: str, db: Session = Depends(get_db)):
     """Terminate a running analysis and mark it as stopped."""

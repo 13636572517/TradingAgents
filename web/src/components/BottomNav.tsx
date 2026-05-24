@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default function BottomNav({ unseen, onHistoryClick }: Props) {
-  const { logout } = useAuth()
+  const { logout, isAdmin } = useAuth()
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 md:hidden bg-surface border-t border-border z-50"
@@ -52,6 +52,19 @@ export default function BottomNav({ unseen, onHistoryClick }: Props) {
               <span className="text-[10px]">{item.label}</span>
             </NavLink>
           )
+        )}
+        {isAdmin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${
+                isActive ? "text-accent" : "text-gray-400"
+              }`
+            }
+          >
+            <span className="text-xl">👥</span>
+            <span className="text-[10px]">管理</span>
+          </NavLink>
         )}
         <button
           onClick={logout}
