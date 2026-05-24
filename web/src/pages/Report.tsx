@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm"
 import { api, openProgressStream } from "../api/client"
 import type { Analysis, ProgressEvent } from "../types"
 import { KLineModal } from "../components/KLineModal"
+import { ShareModal } from "../components/ShareModal"
 
 
 // ── Section tree definition ───────────────────────────────────────────────────
@@ -74,6 +75,7 @@ function AnalysisWorkspace({
   const [showKLine, setShowKLine] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [rerunningStageName, setRerunningStageName] = useState<string | null>(null)
+  const [showShare, setShowShare] = useState(false)
 
   const handleStop = async () => {
     if (stopping) return
@@ -155,13 +157,23 @@ function AnalysisWorkspace({
             · {displayDetail}
           </span>
         )}
-        {/* K线图按钮 — 始终显示 */}
-        <button
-          onClick={() => setShowKLine(true)}
-          className="ml-auto shrink-0 text-xs px-3 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
-        >
-          📈 K线图
-        </button>
+        {/* 右侧按钮组 */}
+        <div className="ml-auto flex items-center gap-2">
+          {!isRunning && (
+            <button
+              onClick={() => setShowShare(true)}
+              className="shrink-0 text-xs px-3 py-1 rounded border border-border text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            >
+              🔗 分享
+            </button>
+          )}
+          <button
+            onClick={() => setShowKLine(true)}
+            className="shrink-0 text-xs px-3 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+          >
+            📈 K线图
+          </button>
+        </div>
         {isRunning && !stopping && (
           <button
             onClick={handleStop}
@@ -347,6 +359,12 @@ function AnalysisWorkspace({
           tradeDate={analysis.trade_date}
           decision={analysis.decision}
           onClose={() => setShowKLine(false)}
+        />
+      )}
+      {showShare && (
+        <ShareModal
+          analysisId={analysis.id}
+          onClose={() => setShowShare(false)}
         />
       )}
     </div>

@@ -136,6 +136,11 @@ export interface AuthUser {
   is_admin: boolean
 }
 
+export interface ShareUser {
+  id: number
+  username: string
+}
+
 export interface AdminUser {
   id: number
   username: string

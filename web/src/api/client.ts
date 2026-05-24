@@ -3,7 +3,7 @@ import axios from "axios"
 import type {
   Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
   ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
-  AuthToken, AuthUser, AdminUser,
+  AuthToken, AuthUser, AdminUser, ShareUser,
 } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
@@ -93,6 +93,15 @@ export const api = {
     http
       .get<KLineResponse>(`/kline/${encodeURIComponent(ticker)}`, { params: { time_range }, signal })
       .then((r) => r.data),
+
+  // ── Sharing ───────────────────────────────────────────────────────────────────
+  getShares: (id: string) => http.get<ShareUser[]>(`/analyses/${id}/shares`).then((r) => r.data),
+  addShares: (id: string, user_ids: number[]) =>
+    http.post(`/analyses/${id}/shares`, { user_ids }),
+  removeShare: (id: string, userId: number) =>
+    http.delete(`/analyses/${id}/shares/${userId}`),
+  searchUsers: (q: string) =>
+    http.get<ShareUser[]>("/auth/users/search", { params: { q } }).then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

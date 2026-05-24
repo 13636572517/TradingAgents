@@ -1,7 +1,7 @@
 # server/models.py
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, JSON
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, JSON
 from server.database import Base
 
 
@@ -26,6 +26,17 @@ class Analysis(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     seen         = Column(Boolean, default=True)         # False triggers sidebar badge
+    owner_id     = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+
+
+class AnalysisShare(Base):
+    """Tracks which users a report has been shared with."""
+    __tablename__ = "analysis_shares"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    analysis_id         = Column(String(36), ForeignKey('analyses.id', ondelete='CASCADE'), nullable=False, index=True)
+    shared_with_user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    created_at          = Column(DateTime, default=datetime.utcnow)
 
 
 class AppSettings(Base):
