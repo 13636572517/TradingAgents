@@ -267,6 +267,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         if vendor not in fallback_vendors:
             fallback_vendors.append(vendor)
 
+    errors: list[str] = []
     for vendor in fallback_vendors:
         if vendor not in VENDOR_METHODS[method]:
             continue
@@ -276,7 +277,15 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except (AlphaVantageRateLimitError, AkShareError, FutuError, JQError, BaoStockError, MaiRuiError):
-            continue  # All trigger fallback to next vendor
+        except Exception as exc:
+            errors.append(f"{vendor}: {type(exc).__name__}: {exc}")
+            continue  # try next vendor
 
-    raise RuntimeError(f"No available vendor for '{method}'")
+    # All vendors failed — return an informative string so the LLM can still
+    # produce a best-effort report instead of crashing or looping.
+    err_summary = "; ".join(errors) if errors else "unknown error"
+    return (
+        f"[Data unavailable — all vendors failed for '{method}'. "
+        f"Errors: {err_summary}. "
+        f"Please produce a best-effort report using your general knowledge.]"
+    )

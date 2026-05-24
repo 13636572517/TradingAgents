@@ -25,6 +25,7 @@ def create_news_analyst(llm):
         system_message = (
             f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(query, start_date, end_date) for {asset_label}-specific or targeted news searches, and get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + """ IMPORTANT: If any tool call fails with a rate limit or network error, you MUST still produce a complete, well-reasoned report using your general knowledge about the ticker, sector, and current macroeconomic environment. Do NOT refuse to produce a report or say the analysis cannot be performed — always deliver a best-effort report and note clearly which data sources were unavailable."""
             + get_language_instruction()
         )
 

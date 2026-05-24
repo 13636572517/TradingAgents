@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -27,22 +28,41 @@ _API = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
 _UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
 
 
-def fetch_stocktwits_messages(ticker: str, limit: int = 30, timeout: float = 10.0) -> str:
+def fetch_stocktwits_messages(
+    ticker: str,
+    limit: int = 30,
+    timeout: float = 12.0,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> str:
     """Fetch recent StockTwits messages for ``ticker`` and return them as a
     formatted plaintext block ready for prompt injection.
 
-    Returns a placeholder string when the endpoint is unreachable, the
-    symbol has no messages, or the response shape is unexpected — the
-    caller never has to special-case None or exceptions.
+    Retries up to ``max_retries`` times with exponential backoff on transient
+    failures (rate limits, timeouts, connection errors).  Returns a placeholder
+    string when the endpoint is permanently unreachable or the symbol has no
+    messages — the caller never has to special-case None or exceptions.
     """
     url = _API.format(ticker=ticker.upper())
     req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
-    except (HTTPError, URLError, json.JSONDecodeError, TimeoutError) as exc:
-        logger.warning("StockTwits fetch failed for %s: %s", ticker, exc)
-        return f"<stocktwits unavailable: {type(exc).__name__}>"
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read())
+            break  # success
+        except (HTTPError, URLError, json.JSONDecodeError, TimeoutError) as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                wait = retry_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "StockTwits fetch failed for %s (attempt %d/%d): %s — retrying in %.1fs",
+                    ticker, attempt, max_retries, exc, wait,
+                )
+                time.sleep(wait)
+    else:
+        logger.warning("StockTwits fetch exhausted retries for %s: %s", ticker, last_exc)
+        return f"<stocktwits unavailable after {max_retries} retries: {type(last_exc).__name__}>"
 
     messages = data.get("messages", []) if isinstance(data, dict) else []
     if not messages:

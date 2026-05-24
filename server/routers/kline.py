@@ -266,6 +266,39 @@ def _fetch_joinquant(ticker: str, start: str, end: str) -> list[dict]:
     return _normalize(df, {})
 
 
+# ── Source: Futu OpenD ────────────────────────────────────────────────────────
+
+def _fetch_futu(ticker: str, start: str, end: str) -> list[dict]:
+    import futu as ft
+    import os
+    host = os.getenv("FUTU_HOST", "127.0.0.1")
+    port = int(os.getenv("FUTU_PORT", "11111"))
+
+    t = ticker.upper()
+    if t.endswith(".HK"):
+        futu_code = "HK." + t.replace(".HK", "").zfill(5)
+    elif t.endswith(".SS"):
+        futu_code = "SH." + t.replace(".SS", "")
+    elif t.endswith(".SZ"):
+        futu_code = "SZ." + t.replace(".SZ", "")
+    else:
+        futu_code = "US." + t
+
+    ctx = ft.OpenQuoteContext(host=host, port=port)
+    try:
+        ret, df, _ = ctx.request_history_kline(
+            code=futu_code, start=start, end=end,
+            ktype=ft.KLType.K_DAY, autype=ft.AuType.QFQ,
+        )
+        if ret != ft.RET_OK or df is None or df.empty:
+            raise ValueError(f"Futu: no data for {ticker} ({df})")
+        col_map = {"time_key": "Date", "open": "Open", "high": "High",
+                   "low": "Low", "close": "Close", "volume": "Volume"}
+        return _normalize(df, col_map)
+    finally:
+        ctx.close()
+
+
 # ── Source: yfinance ──────────────────────────────────────────────────────────
 
 def _fetch_yfinance(ticker: str, start: str, end: str) -> list[dict]:
@@ -296,11 +329,13 @@ def _fetch_with_fallback(ticker: str, start: str, end: str) -> tuple[list[dict],
         ]
     elif is_hk:
         chain = [
+            ("Futu",       _fetch_futu),
             ("AkShare-HK", _fetch_akshare_hk),
             ("yfinance",   _fetch_yfinance),
         ]
     else:  # US / other
         chain = [
+            ("Futu",       _fetch_futu),
             ("yfinance",   _fetch_yfinance),
             ("AkShare-US", _fetch_akshare_us),
         ]
