@@ -56,6 +56,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        decision_only: bool = False,
     ):
         """Initialize the trading agents graph and components.
 
@@ -137,7 +138,7 @@ class TradingAgentsGraph:
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
         self.workflow = self.graph_setup.setup_graph(
             selected_analysts,
-            decision_only=kwargs.get("decision_only", False),
+            decision_only=decision_only,
         )
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None

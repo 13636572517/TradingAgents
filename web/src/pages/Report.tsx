@@ -481,17 +481,21 @@ export default function Report() {
         </div>
       )}
       {isFailed && hasPartialResults && (
-        <div className="bg-red-500/10 border-b border-red-500/30 px-4 py-2 flex items-center gap-3 text-sm">
-          <span className="text-red-400 font-semibold">✗ 分析中途失败</span>
-          <span className="text-gray-400 truncate max-w-md" title={analysis.error ?? ""}>
-            {analysis.error?.slice(0, 80) ?? "未知错误"}
-          </span>
-          <button
-            onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis.ticker)}`)}
-            className="ml-auto text-xs text-accent hover:underline shrink-0"
-          >
-            重新分析 →
-          </button>
+        <div className="bg-red-500/10 border-b border-red-500/30 px-4 py-3 text-sm">
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-red-400 font-semibold">✗ 分析中途失败</span>
+            <button
+              onClick={() => navigate(`/new?ticker=${encodeURIComponent(analysis.ticker)}`)}
+              className="ml-auto text-xs text-accent hover:underline shrink-0"
+            >
+              重新分析 →
+            </button>
+          </div>
+          {analysis.error && (
+            <pre className="text-gray-400 text-xs whitespace-pre-wrap break-all font-mono leading-relaxed max-h-40 overflow-y-auto">
+              {analysis.error}
+            </pre>
+          )}
         </div>
       )}
       <AnalysisWorkspace
