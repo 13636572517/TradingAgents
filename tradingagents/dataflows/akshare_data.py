@@ -61,6 +61,94 @@ def _yf_to_hk_code(ticker: str) -> str:
     return code.zfill(5)
 
 
+def is_etf(ticker: str) -> bool:
+    """Return True if ticker looks like an A-share ETF.
+
+    Checks code range only — exchange suffix (.SS / .SZ) is intentionally
+    ignored because some ETFs are mis-labelled (e.g. 517180.SZ should be .SS).
+
+    Shenzhen ETF codes: 159xxx
+    Shanghai ETF codes: 51xxxx, 52xxxx, 588xxx
+    """
+    upper = ticker.upper().strip()
+    base = upper.rsplit(".", 1)[0]
+    if not base.isdigit() or len(base) != 6:
+        return False
+    p2 = base[:2]
+    p3 = base[:3]
+    return p3 == "159" or p2 in ("51", "52") or p3 == "588"
+
+
+def get_cn_etf_fundamentals(
+    ticker: Annotated[str, "ETF ticker in Yahoo Finance format, e.g. 159992.SZ"],
+    curr_date: Annotated[str, "current date YYYY-MM-DD"] = None,
+) -> str:
+    """Return an ETF-specific analysis report: price performance, top holdings, NAV history."""
+    try:
+        import akshare as ak
+    except ImportError:
+        raise AkShareError("akshare is not installed")
+
+    code = _yf_to_short_code(ticker)
+    today = curr_date or datetime.now().strftime("%Y-%m-%d")
+    lines = [
+        f"# ETF Analysis Report: {ticker}",
+        f"# Date: {today}",
+        f"# Note: ETFs hold a basket of securities. Traditional financial statements",
+        f"#       (balance sheet / income statement / cashflow) do not apply.",
+        "",
+    ]
+
+    # ── 1. Recent price & volume ─────────────────────────────────────────────────
+    try:
+        price_df = ak.fund_etf_hist_em(symbol=code, period="daily", adjust="qfq")
+        if price_df is not None and not price_df.empty:
+            recent = price_df.tail(30).copy()
+            recent = recent.rename(columns={
+                "日期": "Date", "开盘": "Open", "收盘": "Close",
+                "最高": "High", "最低": "Low", "成交量": "Volume",
+                "成交额": "Amount(CNY)", "涨跌幅": "Change(%)", "换手率": "Turnover(%)",
+            })
+            last = price_df.iloc[-1]
+            close_price = last.get("收盘", "N/A")
+            chg = last.get("涨跌幅", "N/A")
+            lines += [
+                "## Recent Price Performance (last 30 trading days)",
+                f"Latest close: {close_price} CNY  |  Change: {chg}%",
+                "",
+                recent[["Date","Open","Close","High","Low","Volume","Change(%)"]].to_csv(index=False),
+            ]
+    except Exception as e:
+        lines.append(f"## Price data unavailable: {e}\n")
+
+    # ── 2. Top holdings (latest quarterly disclosure) ────────────────────────────
+    try:
+        year = today[:4]
+        holds = ak.fund_portfolio_hold_em(symbol=code, date=year)
+        if holds is not None and not holds.empty:
+            top10 = holds.head(10)
+            lines += [
+                "## Top Holdings (Latest Quarter)",
+                top10.to_csv(index=False),
+            ]
+    except Exception as e:
+        lines.append(f"## Holdings data unavailable: {e}\n")
+
+    # ── 3. NAV history (last 10 rows) ────────────────────────────────────────────
+    try:
+        nav_df = ak.fund_etf_fund_info_em(fund=code)
+        if nav_df is not None and not nav_df.empty:
+            recent_nav = nav_df.tail(10)
+            lines += [
+                "## Recent NAV History",
+                recent_nav.to_csv(index=False),
+            ]
+    except Exception as e:
+        lines.append(f"## NAV data unavailable: {e}\n")
+
+    return "\n".join(lines)
+
+
 # ── A-share price data ─────────────────────────────────────────────────────────
 
 def get_cn_stock_data(
@@ -75,13 +163,19 @@ def get_cn_stock_data(
         raise AkShareError("akshare is not installed. Run: pip install akshare")
     try:
         ak_code = _yf_to_short_code(symbol)
-        df = ak.stock_zh_a_hist(
-            symbol=ak_code,
-            period="daily",
-            start_date=start_date.replace("-", ""),
-            end_date=end_date.replace("-", ""),
-            adjust="qfq",   # 前复权: keeps current price unchanged, adjusts historical prices back
-        )
+        if is_etf(symbol):
+            df = ak.fund_etf_hist_em(symbol=ak_code, period="daily", adjust="qfq")
+            if df is not None and not df.empty:
+                df["日期"] = df["日期"].astype(str)
+                df = df[(df["日期"] >= start_date) & (df["日期"] <= end_date)]
+        else:
+            df = ak.stock_zh_a_hist(
+                symbol=ak_code,
+                period="daily",
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+                adjust="qfq",
+            )
         if df is None or df.empty:
             return f"No data found for {symbol} between {start_date} and {end_date}"
 
@@ -333,7 +427,10 @@ def get_cn_fundamentals(
 
     Uses stock_financial_abstract_ths which is more stable than Eastmoney endpoints.
     Returns annual historical data: revenue, net profit, EPS, ROE, margins, debt ratios.
+    For ETFs, delegates to get_cn_etf_fundamentals.
     """
+    if is_etf(ticker):
+        return get_cn_etf_fundamentals(ticker, curr_date)
     try:
         import akshare as ak
     except ImportError:
@@ -392,6 +489,11 @@ def get_cn_balance_sheet(
 
     Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
     """
+    if is_etf(ticker):
+        return (
+            f"# {ticker} is an ETF — balance sheets do not apply to ETFs.\n"
+            f"# Call get_fundamentals() instead to get NAV, holdings and performance data.\n"
+        )
     try:
         import akshare as ak
     except ImportError:
@@ -423,6 +525,11 @@ def get_cn_cashflow(
 
     Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
     """
+    if is_etf(ticker):
+        return (
+            f"# {ticker} is an ETF — cash flow statements do not apply to ETFs.\n"
+            f"# Call get_fundamentals() instead to get NAV, holdings and performance data.\n"
+        )
     try:
         import akshare as ak
     except ImportError:
@@ -454,6 +561,11 @@ def get_cn_income_statement(
 
     Note: freq parameter is accepted for interface parity with yfinance counterparts but is ignored — AkShare returns a fixed multi-period table regardless.
     """
+    if is_etf(ticker):
+        return (
+            f"# {ticker} is an ETF — income statements do not apply to ETFs.\n"
+            f"# Call get_fundamentals() instead to get NAV, holdings and performance data.\n"
+        )
     try:
         import akshare as ak
     except ImportError:

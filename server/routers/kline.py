@@ -61,12 +61,12 @@ def _is_etf(ticker: str) -> bool:
     code = t.rsplit(".", 1)[0]
     if not code.isdigit() or len(code) != 6:
         return False
+    p2 = code[:2]
     p3 = code[:3]
-    if t.endswith(".SZ") and p3 == "159":
-        return True
-    if t.endswith(".SS") and (code[:2] in ("51", "52") or p3 == "588"):
-        return True
-    return False
+    # Check code range only — exchange suffix (.SS / .SZ) is intentionally ignored
+    # because some ETFs carry the wrong suffix (e.g. 517180.SZ should be .SS).
+    # Shenzhen ETF codes: 159xxx; Shanghai ETF codes: 51xxxx, 52xxxx, 588xxx
+    return p3 == "159" or p2 in ("51", "52") or p3 == "588"
 
 
 # ── Data normalizer ────────────────────────────────────────────────────────────

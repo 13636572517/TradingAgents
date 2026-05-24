@@ -10,12 +10,16 @@ Ticker format (Yahoo Finance style):
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from typing import Annotated
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# BaoStock login/logout is not thread-safe; serialize all calls
+_BS_LOCK = threading.Lock()
 
 
 class BaoStockError(Exception):
@@ -38,17 +42,22 @@ def _to_bs_code(ticker: str) -> str:
 # ── Session management (login once per call, logout after) ────────────────────
 
 def _bs_session():
-    """Context manager that logs into BaoStock and logs out on exit."""
+    """Context manager: acquires global lock, logs into BaoStock, logs out on exit."""
     import baostock as bs
 
     class _Session:
         def __enter__(self):
+            _BS_LOCK.acquire()
             result = bs.login()
             if result.error_code != "0":
+                _BS_LOCK.release()
                 raise BaoStockError(f"BaoStock login failed: {result.error_msg}")
             return bs
         def __exit__(self, *_):
-            bs.logout()
+            try:
+                bs.logout()
+            finally:
+                _BS_LOCK.release()
 
     return _Session()
 

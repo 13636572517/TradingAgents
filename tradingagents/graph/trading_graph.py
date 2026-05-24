@@ -96,8 +96,14 @@ class TradingAgentsGraph:
             **llm_kwargs,
         )
 
-        self.deep_thinking_llm = deep_client.get_llm()
-        self.quick_thinking_llm = quick_client.get_llm()
+        if os.environ.get("MOCK_LLM"):
+            from tradingagents.llm_clients.mock_llm import DataTestMockLLM
+            _mock = DataTestMockLLM()
+            self.deep_thinking_llm = _mock
+            self.quick_thinking_llm = _mock
+        else:
+            self.deep_thinking_llm = deep_client.get_llm()
+            self.quick_thinking_llm = quick_client.get_llm()
         
         self.memory_log = TradingMemoryLog(self.config)
 

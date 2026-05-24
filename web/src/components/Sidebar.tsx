@@ -1,7 +1,5 @@
 // web/src/components/Sidebar.tsx
-import { useEffect, useState } from "react"
-import { NavLink, useNavigate } from "react-router-dom"
-import { api } from "../api/client"
+import { NavLink } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 
 const NAV = [
@@ -11,27 +9,16 @@ const NAV = [
   { to: "/settings", icon: "⚙️", label: "设置" },
 ]
 
-export default function Sidebar() {
-  const [unseen, setUnseen] = useState(0)
-  const navigate = useNavigate()
+interface Props {
+  unseen: number
+  onHistoryClick: () => void
+}
+
+export default function Sidebar({ unseen, onHistoryClick }: Props) {
   const { logout, username } = useAuth()
 
-  useEffect(() => {
-    const refresh = () =>
-      api.getNotificationCount().then((r) => setUnseen(r.unseen))
-    refresh()
-    const id = setInterval(refresh, 10_000)
-    return () => clearInterval(id)
-  }, [])
-
-  const handleHistoryClick = async () => {
-    if (unseen > 0) await api.markAllRead()
-    setUnseen(0)
-    navigate("/history")
-  }
-
   return (
-    <aside className="w-14 bg-surface border-r border-border flex flex-col items-center py-4 gap-6 shrink-0">
+    <aside className="hidden md:flex w-14 bg-surface border-r border-border flex-col items-center py-4 gap-6 shrink-0">
       <div className="w-8 h-8 rounded bg-accent/20 flex items-center justify-center text-accent font-bold text-sm">
         TA
       </div>
@@ -39,7 +26,7 @@ export default function Sidebar() {
         item.to === "/history" ? (
           <button
             key={item.to}
-            onClick={handleHistoryClick}
+            onClick={onHistoryClick}
             className="relative w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 text-gray-400 hover:text-accent transition-colors text-lg"
             title={item.label}
           >

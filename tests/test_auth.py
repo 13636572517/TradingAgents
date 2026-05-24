@@ -145,3 +145,27 @@ def test_me_with_valid_token(db_session):
 def test_me_without_token():
     resp = client.get("/api/auth/me")
     assert resp.status_code == 401
+
+
+# ── Task 5: Protected routes ──────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_analyses_requires_auth():
+    """GET /api/analyses must return 401 without a Bearer token."""
+    resp = client.get("/api/analyses")
+    assert resp.status_code == 401
+
+
+@pytest.mark.unit
+def test_analyses_accessible_with_token(db_session):
+    _create_user(db_session)
+    login_resp = client.post("/api/auth/login", json={"username": "alice", "password": "password123"})
+    token = login_resp.json()["access_token"]
+    resp = client.get("/api/analyses", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+
+@pytest.mark.unit
+def test_search_requires_auth():
+    resp = client.get("/api/search?q=test")
+    assert resp.status_code == 401

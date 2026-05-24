@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime
 from typing import Annotated, Optional
 
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 _JQ_USERNAME = os.getenv("JQ_USERNAME", "")
 _JQ_PASSWORD = os.getenv("JQ_PASSWORD", "")
+
+# JoinQuant allows only 1 concurrent connection per account
+_JQ_LOCK = threading.Lock()
 
 
 class JQError(Exception):
@@ -80,6 +84,11 @@ def get_jq_stock_data(
     end_date: Annotated[str, "End date yyyy-mm-dd"],
 ) -> str:
     """Get A-share daily OHLCV data from JoinQuant (前复权, qfq)."""
+    with _JQ_LOCK:
+        return _get_jq_stock_data(symbol, start_date, end_date)
+
+
+def _get_jq_stock_data(symbol, start_date, end_date):
     _ensure_auth()
     try:
         import jqdatasdk as jq
@@ -124,6 +133,11 @@ def get_jq_indicators(
     look_back_days: Annotated[int, "calendar days to look back"] = 60,
 ) -> str:
     """Compute technical indicators via JoinQuant OHLCV + stockstats."""
+    with _JQ_LOCK:
+        return _get_jq_indicators(symbol, indicator, curr_date, look_back_days)
+
+
+def _get_jq_indicators(symbol, indicator, curr_date, look_back_days):
     _ensure_auth()
     try:
         import jqdatasdk as jq
@@ -183,6 +197,11 @@ def get_jq_fundamentals(
     curr_date: Annotated[str, "current date YYYY-MM-DD"] = None,
 ) -> str:
     """Get A-share key financial indicators from JoinQuant."""
+    with _JQ_LOCK:
+        return _get_jq_fundamentals(ticker, curr_date)
+
+
+def _get_jq_fundamentals(ticker, curr_date):
     _ensure_auth()
     try:
         import jqdatasdk as jq
@@ -191,11 +210,16 @@ def get_jq_fundamentals(
         jq_code = _to_jq_code(ticker)
         date = curr_date or datetime.now().strftime("%Y-%m-%d")
 
-        # Valuation metrics
+        # Valuation metrics — JQ free tier cuts off at ~2026-02-18; retry with
+        # the last known working date so BaoStock fallback isn't needed for
+        # dates just beyond the free-tier boundary.
+        _JQ_VALUATION_FALLBACK = "2026-02-18"
         q = query(valuation).filter(valuation.code == jq_code)
         df = jq.get_fundamentals(q, date=date)
+        if (df is None or df.empty) and date > _JQ_VALUATION_FALLBACK:
+            df = jq.get_fundamentals(q, date=_JQ_VALUATION_FALLBACK)
         if df is None or df.empty:
-            return f"No fundamentals data for {ticker}"
+            raise JQError(f"No fundamentals data for {ticker} at {date} — triggering fallback")
 
         row = df.iloc[0]
         lines = [
@@ -218,15 +242,40 @@ def get_jq_fundamentals(
         raise JQError(f"JoinQuant fundamentals failed for {ticker}: {e}") from e
 
 
+def _last_quarter_end(date_str: str) -> str:
+    """Return the most recent quarter-end date on or before date_str."""
+    d = datetime.strptime(date_str[:10], "%Y-%m-%d")
+    # Quarter-end months: 3, 6, 9, 12
+    quarter_ends = [
+        datetime(d.year, 3, 31),
+        datetime(d.year, 6, 30),
+        datetime(d.year, 9, 30),
+        datetime(d.year, 12, 31),
+    ]
+    past = [qe for qe in quarter_ends if qe <= d]
+    if past:
+        return past[-1].strftime("%Y-%m-%d")
+    # Fall back to previous year Q4
+    return datetime(d.year - 1, 12, 31).strftime("%Y-%m-%d")
+
+
 def _get_jq_statement(ticker: str, statement_type: str, curr_date: Optional[str] = None) -> str:
-    """Shared helper for financial statements via JoinQuant."""
+    """Shared helper for financial statements via JoinQuant.
+
+    JoinQuant financial statements lag the reporting date by ~1 quarter.
+    We query the most recent quarter-end and retry one quarter back if empty.
+    Raises JQError on empty result so the vendor fallback chain tries BaoStock/AkShare.
+    """
     _ensure_auth()
     try:
         import jqdatasdk as jq
         from jqdatasdk import query, balance, income, cash_flow
 
         jq_code = _to_jq_code(ticker)
-        date = curr_date or datetime.now().strftime("%Y-%m-%d")
+        raw_date = curr_date or datetime.now().strftime("%Y-%m-%d")
+
+        # Snap to nearest past quarter-end (financial statements are quarterly)
+        date = _last_quarter_end(raw_date)
 
         table_map = {"balance": balance, "income": income, "cashflow": cash_flow}
         label_map = {"balance": "Balance Sheet (资产负债表)",
@@ -237,14 +286,22 @@ def _get_jq_statement(ticker: str, statement_type: str, curr_date: Optional[str]
         q = query(tbl).filter(tbl.code == jq_code)
         df = jq.get_fundamentals(q, date=date)
 
+        # Retry one quarter back if empty (report not yet filed / free-tier lag)
         if df is None or df.empty:
-            return f"No {statement_type} data for {ticker}"
+            prev_d = datetime.strptime(date, "%Y-%m-%d")
+            prev_date = _last_quarter_end(
+                (datetime(prev_d.year, prev_d.month, 1) - __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%d")
+            )
+            df = jq.get_fundamentals(q, date=prev_date)
+            date = prev_date
+
+        if df is None or df.empty:
+            raise JQError(f"No {statement_type} data for {ticker} at {date} — triggering fallback")
 
         header = (
             f"# {label_map[statement_type]} for {ticker.upper()}\n"
             f"# Source: JoinQuant | Date: {date}\n\n"
         )
-        # Drop internal columns
         df = df.drop(columns=["id", "code", "pubDate", "statDate"], errors="ignore")
         return header + df.to_csv(index=False)
     except JQError:
@@ -259,7 +316,8 @@ def get_jq_balance_sheet(
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    return _get_jq_statement(ticker, "balance", curr_date)
+    with _JQ_LOCK:
+        return _get_jq_statement(ticker, "balance", curr_date)
 
 
 def get_jq_income_statement(
@@ -267,7 +325,8 @@ def get_jq_income_statement(
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    return _get_jq_statement(ticker, "income", curr_date)
+    with _JQ_LOCK:
+        return _get_jq_statement(ticker, "income", curr_date)
 
 
 def get_jq_cashflow(
@@ -275,7 +334,8 @@ def get_jq_cashflow(
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    return _get_jq_statement(ticker, "cashflow", curr_date)
+    with _JQ_LOCK:
+        return _get_jq_statement(ticker, "cashflow", curr_date)
 
 
 # ── Connection test ────────────────────────────────────────────────────────────

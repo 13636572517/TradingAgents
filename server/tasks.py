@@ -135,6 +135,9 @@ def run_analysis(self, analysis_id: str):
         config["max_risk_discuss_rounds"] = record.depth
         config["debug"] = True
         config["checkpoint_enabled"] = False
+        # Disable Futu on server unless explicitly enabled via env var
+        if not os.getenv("FUTU_ENABLED", "").lower() in ("1", "true", "yes"):
+            config["futu_enabled"] = False
         config = _apply_llm_config(config, record.llm_config or {})
 
         # Mark as running after config is ready
@@ -186,7 +189,8 @@ def run_analysis(self, analysis_id: str):
             new_stage, detail = _detect_progress(final_state, record)
             _update_progress(db, record, stage=new_stage, detail=detail)
 
-        decision_str = ta.process_signal(final_state.get("final_trade_decision", ""))
+        raw_decision = _strip_tool_call_prefix(final_state.get("final_trade_decision", ""))
+        decision_str = ta.process_signal(raw_decision)
         decision = _extract_decision_label(decision_str)
 
         record.status = "complete"
@@ -200,7 +204,7 @@ def run_analysis(self, analysis_id: str):
             "fundamentals_report":    final_state.get("fundamentals_report"),
             "investment_plan":        final_state.get("investment_plan"),
             "trader_investment_plan": final_state.get("trader_investment_plan"),
-            "final_trade_decision":   final_state.get("final_trade_decision"),
+            "final_trade_decision":   raw_decision,
         }
         record.usage = usage_tracker.collect()
         record.completed_at = datetime.utcnow()
@@ -229,3 +233,22 @@ def _extract_decision_label(decision_str: str) -> str:
         if label in upper:
             return label
     return "HOLD"
+
+
+def _strip_tool_call_prefix(text: str) -> str:
+    """Remove leading JSON tool-call code blocks that models sometimes emit.
+
+    Some LLMs output a ```json {"tool": "..."} ``` block before the actual
+    analysis when they mistake the instrument context for a tool-call prompt.
+    """
+    import re
+    if not text:
+        return text
+    # Strip one or more leading ```...``` blocks that contain "tool" key
+    cleaned = re.sub(
+        r'^\s*```[a-z]*\s*\{[^`]*?"tool"[^`]*?\}\s*```\s*',
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+    return cleaned.strip() or text.strip()

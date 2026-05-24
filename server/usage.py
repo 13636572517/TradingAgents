@@ -39,7 +39,15 @@ _PRICE_CNY: Dict[str, tuple] = {
 
 
 def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
-    price = _PRICE_CNY.get(model.lower())
+    key = model.lower()
+    # Exact match first
+    price = _PRICE_CNY.get(key)
+    # Fallback: strip date/version suffixes (e.g. "qwen3.5-plus-2026-04-20" → "qwen3.5-plus")
+    if not price:
+        for table_key in sorted(_PRICE_CNY, key=len, reverse=True):
+            if key.startswith(table_key):
+                price = _PRICE_CNY[table_key]
+                break
     if not price:
         return 0.0
     p_in, p_out = price
@@ -119,15 +127,30 @@ class CombinedUsageTracker(BaseCallbackHandler):
             generation = response.generations[0][0]
         except (IndexError, TypeError):
             return
-        meta = None
+
+        tokens_in = 0
+        tokens_out = 0
+
+        # Path 1: usage_metadata on AIMessage (LangChain standard — OpenAI, Anthropic, Gemini)
         if hasattr(generation, "message"):
             msg = generation.message
-            if isinstance(msg, AIMessage) and hasattr(msg, "usage_metadata"):
-                meta = msg.usage_metadata
-        if meta:
+            if isinstance(msg, AIMessage):
+                meta = getattr(msg, "usage_metadata", None) or {}
+                if meta:
+                    tokens_in  = meta.get("input_tokens",  0)
+                    tokens_out = meta.get("output_tokens", 0)
+
+        # Path 2: generation_info["token_usage"] (OpenAI-compatible providers incl. DashScope/Qwen)
+        if not tokens_in and not tokens_out:
+            info = getattr(generation, "generation_info", None) or {}
+            tu = info.get("token_usage") or info.get("usage") or {}
+            tokens_in  = tu.get("prompt_tokens",     0) or tu.get("input_tokens",  0)
+            tokens_out = tu.get("completion_tokens", 0) or tu.get("output_tokens", 0)
+
+        if tokens_in or tokens_out:
             with self._lock:
-                slot.tokens_in  += meta.get("input_tokens",  0)
-                slot.tokens_out += meta.get("output_tokens", 0)
+                slot.tokens_in  += tokens_in
+                slot.tokens_out += tokens_out
 
     def on_tool_start(self, serialized: Any, input_str: Any, **kwargs: Any) -> None:
         # Tool calls are attributed to the quick model (all analysts use quick)

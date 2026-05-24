@@ -42,6 +42,8 @@ dependencies = [
     "celery[redis]>=5.4.0",
     "bcrypt>=4.0.0",
     "aiofiles>=24.0.0",
+    "jqdatasdk>=1.9.0",
+    "futu-api>=9.0.0",
 ]
 
 [project.scripts]

@@ -69,6 +69,7 @@ function AnalysisWorkspace({
   const elapsed = useElapsed(isRunning)
   const [stopping, setStopping] = useState(false)
   const [showKLine, setShowKLine] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const handleStop = async () => {
     if (stopping) return
@@ -107,6 +108,14 @@ function AnalysisWorkspace({
     <div className="flex flex-col h-screen">
       {/* Top status bar */}
       <div className="bg-surface border-b border-border px-4 py-2.5 flex items-center gap-3 shrink-0">
+        {/* Sidebar toggle */}
+        <button
+          onClick={() => setSidebarOpen((v) => !v)}
+          className="shrink-0 text-gray-500 hover:text-white transition-colors text-base px-1"
+          title={sidebarOpen ? "隐藏目录" : "展开目录"}
+        >
+          {sidebarOpen ? "◀" : "☰"}
+        </button>
         <span className="font-semibold text-white">{analysis.ticker}</span>
         <span className="text-gray-500 text-sm">{analysis.trade_date}</span>
         {analysis.decision && (
@@ -151,7 +160,7 @@ function AnalysisWorkspace({
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left tree panel ── */}
-        <div className="w-52 shrink-0 bg-surface border-r border-border overflow-y-auto py-3">
+        <div className={`${sidebarOpen ? "w-52" : "hidden"} shrink-0 bg-surface border-r border-border overflow-y-auto py-3`}>
           {TREE.map((group) => {
             const groupItems = group.items.filter(
               (it) => it.analyst === null || selectedAnalysts.includes(it.analyst)

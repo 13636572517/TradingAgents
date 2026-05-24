@@ -21,6 +21,8 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:3000",
         "http://47.103.133.232:8080",
+        "https://trading.yusuan.xyz",
+        "http://trading.yusuan.xyz",
     ],
     allow_credentials=True,
     allow_methods=["*"],
