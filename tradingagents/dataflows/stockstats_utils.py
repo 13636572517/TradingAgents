@@ -13,6 +13,51 @@ from .utils import safe_ticker_component
 logger = logging.getLogger(__name__)
 
 
+def fix_cn_exchange(ticker: str) -> str:
+    """Auto-correct the exchange suffix for Chinese A-share / ETF tickers.
+
+    Some users pass 513180.SZ (wrong — Shanghai ETF) instead of 513180.SS.
+    This function detects the correct exchange from the numeric code prefix:
+
+        Code prefix → Exchange
+        6xxxxx, 5xxxxx, 9xxxxx, 11xxxx, 58xxxx  → Shanghai (.SS)
+        0xxxxx, 1xxxxx, 2xxxxx, 3xxxxx, 15xxxx   → Shenzhen (.SZ)
+
+    Only acts on 6-digit codes ending in .SS or .SZ; other tickers are
+    returned unchanged.
+    """
+    t = ticker.strip()
+    suffix = None
+    if t.upper().endswith(".SS"):
+        suffix = ".SS"
+    elif t.upper().endswith(".SZ"):
+        suffix = ".SZ"
+    else:
+        return t
+
+    code = t[:-3]
+    if not code.isdigit() or len(code) != 6:
+        return t
+
+    # Shanghai: 6xxxxx (A-shares), 5xxxxx (ETFs), 9xxxxx (B-shares),
+    #           11xxxx (bonds / CB), 58xxxx (STAR market ETFs)
+    if code[0] in ("6", "5", "9") or code.startswith("11") or code.startswith("58"):
+        correct = ".SS"
+    # Shenzhen: 0xxxxx, 1xxxxx (incl. 15xxxx/16xxxx ETFs), 2xxxxx, 3xxxxx
+    elif code[0] in ("0", "1", "2", "3"):
+        correct = ".SZ"
+    else:
+        return t
+
+    if suffix != correct:
+        logger.warning(
+            "Ticker %s has wrong exchange suffix; auto-correcting to %s",
+            ticker, code + correct,
+        )
+        return code + correct
+    return t
+
+
 def yf_retry(func, max_retries=3, base_delay=2.0):
     """Execute a yfinance call with exponential backoff on rate limits.
 
@@ -52,6 +97,9 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     subsequent calls the cache is reused. Rows after curr_date are
     filtered out so backtests never see future prices.
     """
+    # Auto-correct wrong exchange suffix (e.g. 513180.SZ → 513180.SS)
+    symbol = fix_cn_exchange(symbol)
+
     # Reject ticker values that would escape the cache directory when
     # interpolated into the cache filename (e.g. ``../../tmp/x``).
     safe_symbol = safe_ticker_component(symbol)
