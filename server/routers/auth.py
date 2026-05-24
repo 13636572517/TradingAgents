@@ -42,3 +42,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/users/search", response_model=list[UserOut])
+def search_users(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fuzzy search users by username (for sharing). Excludes caller."""
+    query = db.query(User).filter(User.is_active == True, User.id != current_user.id)
+    if q.strip():
+        query = query.filter(User.username.ilike(f"%{q.strip()}%"))
+    return query.order_by(User.username).limit(20).all()

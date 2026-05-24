@@ -28,8 +28,9 @@ def init_db():
     """Create all tables and apply lightweight migrations. Call once on startup."""
     from server import models  # noqa: F401 — ensure models are registered
     Base.metadata.create_all(bind=engine)
-    # Lightweight migration: add is_admin column if it doesn't exist yet
+    # Lightweight migrations: add columns if they don't exist yet
     _migrate_add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0")
+    _migrate_add_column("analyses", "owner_id", "INT NULL")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:
