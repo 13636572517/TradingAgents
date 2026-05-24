@@ -90,6 +90,15 @@ def _is_etf(ticker: str) -> bool:
 
 # ── Data normalizer ────────────────────────────────────────────────────────────
 
+def _has_coverage(rows: list[dict], start: str, tolerance_days: int = 60) -> bool:
+    """Return True if the earliest row is within tolerance_days of the requested start."""
+    if not rows:
+        return False
+    earliest_dt = datetime.strptime(rows[0]["date"], "%Y-%m-%d")
+    start_dt = datetime.strptime(start, "%Y-%m-%d")
+    return (earliest_dt - start_dt).days <= tolerance_days
+
+
 def _normalize(df: pd.DataFrame, col_map: dict) -> list[dict]:
     """Rename columns, drop NaN rows, return sorted list of dicts."""
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
@@ -124,34 +133,38 @@ def _fetch_akshare_a(ticker: str, start: str, end: str) -> list[dict]:
     col_map = {"日期": "Date", "开盘": "Open", "最高": "High",
                "最低": "Low", "收盘": "Close", "成交量": "Volume"}
 
+    col_map_163 = {"日期": "Date", "开盘价": "Open", "最高价": "High",
+                   "最低价": "Low", "收盘价": "Close", "成交量": "Volume"}
+
     if _is_etf(ticker):
-        # 1) fund_etf_hist_em — Eastmoney
+        # 1) fund_etf_hist_em — Eastmoney (no date params; check coverage)
         try:
             df = ak.fund_etf_hist_em(symbol=code, period="daily", adjust="qfq")
             rows = _normalize(df, col_map)
             filtered = [r for r in rows if start <= r["date"] <= end]
-            if filtered:
+            if _has_coverage(filtered, start):
                 return filtered
-            logger.warning("kline: fund_etf_hist_em empty for %s", ticker)
+            logger.warning("kline: fund_etf_hist_em insufficient coverage for %s (earliest=%s)",
+                           ticker, filtered[0]["date"] if filtered else "none")
         except Exception as e:
             logger.warning("kline: fund_etf_hist_em failed for %s: %s", ticker, e)
-        # 2) stock_zh_a_hist — Eastmoney (ETFs trade as stocks)
+        # 2) stock_zh_a_hist — Eastmoney with date range
         try:
             df = ak.stock_zh_a_hist(symbol=code, period="daily",
                                     start_date=s_date, end_date=e_date, adjust="qfq")
             rows = _normalize(df, col_map)
-            if rows:
+            if _has_coverage(rows, start):
                 return rows
+            logger.warning("kline: stock_zh_a_hist insufficient coverage for %s", ticker)
         except Exception as e:
             logger.warning("kline: stock_zh_a_hist failed for %s: %s", ticker, e)
-        # 3) stock_zh_a_hist_163 — 163.com/NetEase (different backend from Eastmoney)
+        # 3) stock_zh_a_hist_163 — 163.com/NetEase
         try:
             df = ak.stock_zh_a_hist_163(symbol=code, start_date=s_date, end_date=e_date)
-            col_map_163 = {"日期": "Date", "开盘价": "Open", "最高价": "High",
-                           "最低价": "Low", "收盘价": "Close", "成交量": "Volume"}
             rows = _normalize(df, col_map_163)
-            if rows:
+            if _has_coverage(rows, start):
                 return rows
+            logger.warning("kline: stock_zh_a_hist_163 insufficient coverage for %s", ticker)
         except Exception as e:
             logger.warning("kline: stock_zh_a_hist_163 failed for %s: %s", ticker, e)
         return []
@@ -163,15 +176,20 @@ def _fetch_akshare_a(ticker: str, start: str, end: str) -> list[dict]:
                 start_date=s_date, end_date=e_date, adjust="qfq",
             )
             rows = _normalize(df, col_map)
-            if rows:
+            if _has_coverage(rows, start):
                 return rows
+            logger.warning("kline: stock_zh_a_hist insufficient coverage for %s", ticker)
         except Exception as e:
             logger.warning("kline: stock_zh_a_hist failed for %s: %s", ticker, e)
         # 2) stock_zh_a_hist_163 — 163.com fallback
-        df = ak.stock_zh_a_hist_163(symbol=code, start_date=s_date, end_date=e_date)
-        col_map_163 = {"日期": "Date", "开盘价": "Open", "最高价": "High",
-                       "最低价": "Low", "收盘价": "Close", "成交量": "Volume"}
-        return _normalize(df, col_map_163)
+        try:
+            df = ak.stock_zh_a_hist_163(symbol=code, start_date=s_date, end_date=e_date)
+            rows = _normalize(df, col_map_163)
+            if rows:
+                return rows
+        except Exception as e:
+            logger.warning("kline: stock_zh_a_hist_163 failed for %s: %s", ticker, e)
+        return []
 
 
 # ── Source: AkShare HK ────────────────────────────────────────────────────────
