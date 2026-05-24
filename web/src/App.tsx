@@ -45,7 +45,7 @@ function AppLayout({ unseen, setUnseen }: { unseen: number; setUnseen: (n: numbe
   return (
     <div className="flex h-screen overflow-hidden bg-bg">
       <Sidebar unseen={unseen} onHistoryClick={handleHistoryClick} />
-      <main className="flex-1 overflow-y-auto pb-16">
+      <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
         <Routes>
           <Route path="/" element={<Navigate to="/new" replace />} />
           <Route path="/new" element={<NewAnalysis />} />

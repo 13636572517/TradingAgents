@@ -10,8 +10,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "TradingAgents",
-        short_name: "TradingAgents",
+        name: "御智投研",
+        short_name: "御智投研",
         description: "AI 多代理金融分析平台",
         theme_color: "#863bff",
         background_color: "#0f0f14",
