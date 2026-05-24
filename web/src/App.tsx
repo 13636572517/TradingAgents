@@ -10,6 +10,7 @@ import History from "./pages/History"
 import Report from "./pages/Report"
 import SettingsPage from "./pages/Settings"
 import StatsPage from "./pages/StatsPage"
+import AdminPage from "./pages/AdminPage"
 import { api } from "./api/client"
 
 function AppShell() {
@@ -53,6 +54,7 @@ function AppLayout({ unseen, setUnseen }: { unseen: number; setUnseen: (n: numbe
           <Route path="/report/:id" element={<Report />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/stats" element={<StatsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Routes>
       </main>
       <BottomNav unseen={unseen} onHistoryClick={handleHistoryClick} />

@@ -133,4 +133,13 @@ export interface AuthUser {
   id: number
   username: string
   is_active: boolean
+  is_admin: boolean
+}
+
+export interface AdminUser {
+  id: number
+  username: string
+  is_active: boolean
+  is_admin: boolean
+  created_at: string
 }

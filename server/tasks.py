@@ -27,6 +27,15 @@ _ANALYST_FIELDS = {
     "market_report":       "技术分析师",
 }
 
+# stage key (from frontend TREE) → (analyst_key, report_field)
+_ANALYST_STAGE_MAP = {
+    "market":       ("market",       "market_report"),
+    "social":       ("social",       "sentiment_report"),
+    "news":         ("news",         "news_report"),
+    "fundamentals": ("fundamentals", "fundamentals_report"),
+}
+_ALL_REPORT_FIELDS = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
+
 
 def _update_progress(db, record: Analysis, stage: str = None, detail: str = None):
     """Write stage and/or detail to DB and commit."""
@@ -221,6 +230,140 @@ def run_analysis(self, analysis_id: str):
             record.stage_detail = f"中途失败: {str(exc)[:150]}"
             record.error = str(exc)
             record.seen = False
+            db.commit()
+        raise
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, name="server.tasks.rerun_stage")
+def rerun_stage(self, analysis_id: str, stage: str):
+    """Re-run a single stage of an existing analysis and merge results back.
+
+    For analyst stages (market/social/news/fundamentals):
+      - Runs only that analyst, pre-populating other reports from existing result.
+      - Debate/risk/decision also re-run with new + existing reports.
+
+    For decision stages (investment_plan/trader_investment_plan/final_trade_decision):
+      - Runs the full pipeline (all analysts fresh).
+    """
+    for proxy_var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
+                      "ALL_PROXY", "all_proxy", "SOCKS_PROXY", "socks_proxy"):
+        os.environ.pop(proxy_var, None)
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
+
+    db = SessionLocal()
+    try:
+        record = db.get(Analysis, analysis_id)
+        if not record:
+            logger.error("rerun_stage: analysis %s not found", analysis_id)
+            return
+
+        existing = dict(record.result or {})
+        is_analyst_stage = stage in _ANALYST_STAGE_MAP
+
+        if is_analyst_stage:
+            analyst_key, _ = _ANALYST_STAGE_MAP[stage]
+            selected_analysts = [analyst_key]
+            label = _ANALYST_FIELDS.get(_ANALYST_STAGE_MAP[stage][1], stage)
+        else:
+            selected_analysts = list(record.analysts or ["market", "social", "news", "fundamentals"])
+            label = {"investment_plan": "投研总结", "trader_investment_plan": "交易建议",
+                     "final_trade_decision": "最终决策"}.get(stage, stage)
+
+        record.status = "running"
+        record.stage = "analysts"
+        record.stage_detail = f"正在重新分析: {label}…"
+        record.celery_task_id = self.request.id
+        db.commit()
+
+        from tradingagents.graph.trading_graph import TradingAgentsGraph
+        from tradingagents.default_config import DEFAULT_CONFIG
+
+        config = DEFAULT_CONFIG.copy()
+        config["output_language"] = "Chinese"
+        config["max_debate_rounds"] = record.depth
+        config["max_risk_discuss_rounds"] = record.depth
+        config["debug"] = True
+        config["checkpoint_enabled"] = False
+        if not os.getenv("FUTU_ENABLED", "").lower() in ("1", "true", "yes"):
+            config["futu_enabled"] = False
+        config = _apply_llm_config(config, record.llm_config or {})
+
+        from server.usage import CombinedUsageTracker
+        usage_tracker = CombinedUsageTracker(
+            quick_model=config["quick_think_llm"],
+            deep_model=config["deep_think_llm"],
+        )
+
+        ta = TradingAgentsGraph(
+            selected_analysts=selected_analysts,
+            debug=True,
+            config=config,
+            callbacks=[usage_tracker],
+        )
+        init_state = ta.propagator.create_initial_state(
+            record.ticker, record.trade_date, asset_type="stock", past_context=""
+        )
+
+        if is_analyst_stage:
+            _, report_key = _ANALYST_STAGE_MAP[stage]
+            for fld in _ALL_REPORT_FIELDS:
+                if fld != report_key and existing.get(fld):
+                    init_state[fld] = existing[fld]
+
+        args = ta.propagator.get_graph_args()
+
+        _PARTIAL_FIELDS = [
+            "market_report", "sentiment_report", "news_report", "fundamentals_report",
+            "investment_plan", "trader_investment_plan",
+        ]
+
+        final_state: dict = {}
+        result_cache: dict = dict(existing)
+
+        for chunk in ta.graph.stream(init_state, **args):
+            final_state.update(chunk)
+            new_fields = {
+                f: final_state[f]
+                for f in _PARTIAL_FIELDS
+                if final_state.get(f) and final_state[f] != existing.get(f)
+            }
+            if new_fields:
+                result_cache.update(new_fields)
+                record.result = dict(result_cache)
+                db.commit()
+
+            new_stage, detail = _detect_progress(final_state, record)
+            _update_progress(db, record, stage=new_stage, detail=detail)
+
+        raw_decision = _strip_tool_call_prefix(final_state.get("final_trade_decision", ""))
+        decision_str = ta.process_signal(raw_decision) if raw_decision else ""
+        decision = _extract_decision_label(decision_str) if decision_str else record.decision
+
+        new_result = dict(existing)
+        for fld in _PARTIAL_FIELDS + ["final_trade_decision"]:
+            if final_state.get(fld):
+                new_result[fld] = final_state[fld]
+
+        record.status = "complete"
+        record.stage = "complete"
+        record.stage_detail = f"{label} 重新分析完成"
+        record.decision = decision
+        record.result = new_result
+        record.completed_at = datetime.utcnow()
+        record.seen = False
+        db.commit()
+
+    except Exception as exc:
+        logger.exception("rerun_stage failed for %s stage %s", analysis_id, stage)
+        rec = db.get(Analysis, analysis_id)
+        if rec:
+            rec.status = "failed"
+            rec.stage_detail = f"重新分析失败: {str(exc)[:150]}"
+            rec.error = str(exc)
+            rec.seen = False
             db.commit()
         raise
     finally:

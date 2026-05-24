@@ -24,6 +24,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     is_active: bool
+    is_admin: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -11,6 +11,7 @@ from server.routers.search import router as search_router
 from server.routers.stats import router as stats_router
 from server.routers.kline import router as kline_router
 from server.routers.auth import router as auth_router
+from server.routers.admin import router as admin_router
 from server.auth import get_current_user
 
 app = FastAPI(title="TradingAgents Web API", version="1.0.0")
@@ -32,6 +33,7 @@ app.add_middleware(
 _auth_dep = [Depends(get_current_user)]
 
 app.include_router(auth_router)                              # public — no auth
+app.include_router(admin_router)                             # admin-only (auth inside router)
 app.include_router(analyses_router,      dependencies=_auth_dep)
 app.include_router(notifications_router, dependencies=_auth_dep)
 app.include_router(settings_router,      dependencies=_auth_dep)

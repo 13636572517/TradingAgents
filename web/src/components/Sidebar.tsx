@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default function Sidebar({ unseen, onHistoryClick }: Props) {
-  const { logout, username } = useAuth()
+  const { logout, username, isAdmin } = useAuth()
 
   return (
     <aside className="hidden md:flex w-14 bg-surface border-r border-border flex-col items-center py-4 gap-6 shrink-0">
@@ -55,8 +55,21 @@ export default function Sidebar({ unseen, onHistoryClick }: Props) {
         )
       )}
 
-      {/* 退出按钮，固定在底部 */}
-      <div className="mt-auto">
+      {/* 管理员入口 + 退出按钮，固定在底部 */}
+      <div className="mt-auto flex flex-col items-center gap-3">
+        {isAdmin && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 transition-colors text-lg ${
+                isActive ? "text-accent bg-accent/10" : "text-gray-400 hover:text-accent"
+              }`
+            }
+            title="用户管理"
+          >
+            👥
+          </NavLink>
+        )}
         <button
           onClick={logout}
           className="w-10 h-10 flex items-center justify-center rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors text-lg"
