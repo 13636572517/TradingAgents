@@ -79,10 +79,13 @@ def create_analysis(
         "backend_url": settings.backend_url if settings else None,
     } if settings else {}
 
+    _ANALYST_ALIAS = {"sentiment": "social"}
+    normalized_analysts = [_ANALYST_ALIAS.get(a, a) for a in payload.analysts]
+
     record = Analysis(
         ticker=payload.ticker.upper(),
         trade_date=payload.trade_date,
-        analysts=payload.analysts,
+        analysts=normalized_analysts,
         depth=payload.depth,
         status="pending",
         stage="pending",

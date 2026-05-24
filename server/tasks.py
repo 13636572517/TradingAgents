@@ -36,6 +36,15 @@ _ANALYST_STAGE_MAP = {
 }
 _ALL_REPORT_FIELDS = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
 
+# Frontend uses "sentiment" as the analyst key; the graph uses "social".
+# This alias map lets us accept both.
+_ANALYST_KEY_ALIAS: dict[str, str] = {"sentiment": "social"}
+
+
+def _normalize_analysts(analysts: list) -> list:
+    """Translate any legacy/frontend analyst key aliases to graph-internal keys."""
+    return [_ANALYST_KEY_ALIAS.get(a, a) for a in (analysts or [])]
+
 
 def _update_progress(db, record: Analysis, stage: str = None, detail: str = None):
     """Write stage and/or detail to DB and commit."""
@@ -268,7 +277,9 @@ def rerun_stage(self, analysis_id: str, stage: str):
             selected_analysts = [analyst_key]
             label = _ANALYST_FIELDS.get(_ANALYST_STAGE_MAP[stage][1], stage)
         else:
-            selected_analysts = list(record.analysts or ["market", "social", "news", "fundamentals"])
+            selected_analysts = _normalize_analysts(
+                record.analysts or ["market", "social", "news", "fundamentals"]
+            )
             label = {"investment_plan": "投研总结", "trader_investment_plan": "交易建议",
                      "final_trade_decision": "最终决策"}.get(stage, stage)
 

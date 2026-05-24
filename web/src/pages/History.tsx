@@ -100,10 +100,10 @@ function AnalysisCard({
       <div className="flex flex-wrap gap-1">
         {analysis.analysts.map((a) => (
           <span key={a} className="text-xs bg-bg border border-border rounded px-1.5 py-0.5 text-gray-400">
-            {a === "fundamentals" ? "基本面" :
-             a === "sentiment"    ? "情绪"   :
-             a === "news"         ? "新闻"   :
-             a === "market"       ? "技术"   : a}
+            {a === "fundamentals"               ? "基本面" :
+             (a === "sentiment" || a === "social") ? "情绪"   :
+             a === "news"                       ? "新闻"   :
+             a === "market"                     ? "技术"   : a}
           </span>
         ))}
       </div>
