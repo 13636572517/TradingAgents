@@ -32,12 +32,22 @@ def _short_code(ticker: str) -> str:
 
 
 def _bs_code(ticker: str) -> str:
-    """600519.SS → sh.600519,  000001.SZ → sz.000001"""
+    """600519.SS → sh.600519,  000001.SZ → sz.000001
+    For ETFs the exchange is derived from the code range, not the suffix,
+    because some ETFs carry the wrong suffix (e.g. 517180.SZ → sh.517180).
+    """
     t = ticker.upper()
+    code = t.rsplit(".", 1)[0]
+    if code.isdigit() and len(code) == 6:
+        p2, p3 = code[:2], code[:3]
+        if p2 in ("51", "52") or p3 == "588":  # Shanghai ETF
+            return "sh." + code
+        if p3 == "159":                          # Shenzhen ETF
+            return "sz." + code
     if t.endswith(".SS"):
-        return "sh." + t[:-3]
+        return "sh." + code
     if t.endswith(".SZ"):
-        return "sz." + t[:-3]
+        return "sz." + code
     return t
 
 
@@ -47,12 +57,21 @@ def _hk_code(ticker: str) -> str:
 
 
 def _jq_code(ticker: str) -> str:
-    """600519.SS → 600519.XSHG,  000001.SZ → 000001.XSHE"""
+    """600519.SS → 600519.XSHG,  000001.SZ → 000001.XSHE
+    For ETFs the exchange is derived from the code range, not the suffix.
+    """
     t = ticker.upper()
+    code = t.rsplit(".", 1)[0]
+    if code.isdigit() and len(code) == 6:
+        p2, p3 = code[:2], code[:3]
+        if p2 in ("51", "52") or p3 == "588":  # Shanghai ETF
+            return code + ".XSHG"
+        if p3 == "159":                          # Shenzhen ETF
+            return code + ".XSHE"
     if t.endswith(".SS"):
-        return t[:-3] + ".XSHG"
+        return code + ".XSHG"
     if t.endswith(".SZ"):
-        return t[:-3] + ".XSHE"
+        return code + ".XSHE"
     return t
 
 
@@ -102,13 +121,26 @@ def _fetch_akshare_a(ticker: str, start: str, end: str) -> list[dict]:
     s_date = start.replace("-", "")
     e_date = end.replace("-", "")
     if _is_etf(ticker):
-        df = ak.fund_etf_hist_em(
-            symbol=_short_code(ticker), period="daily", adjust="qfq"
-        )
+        code = _short_code(ticker)
         col_map = {"日期": "Date", "开盘": "Open", "最高": "High",
                    "最低": "Low", "收盘": "Close", "成交量": "Volume"}
+        # Primary: fund_etf_hist_em (returns all history, then filter)
+        try:
+            df = ak.fund_etf_hist_em(symbol=code, period="daily", adjust="qfq")
+            rows = _normalize(df, col_map)
+            filtered = [r for r in rows if start <= r["date"] <= end]
+            if filtered:
+                return filtered
+            logger.warning("kline: fund_etf_hist_em returned empty for %s, trying stock_zh_a_hist", ticker)
+        except Exception as e:
+            logger.warning("kline: fund_etf_hist_em failed for %s: %s, trying stock_zh_a_hist", ticker, e)
+        # Fallback: stock_zh_a_hist also serves some ETF codes
+        df = ak.stock_zh_a_hist(
+            symbol=code, period="daily",
+            start_date=s_date, end_date=e_date, adjust="qfq",
+        )
         rows = _normalize(df, col_map)
-        return [r for r in rows if start <= r["date"] <= end]
+        return rows
     else:
         df = ak.stock_zh_a_hist(
             symbol=_short_code(ticker), period="daily",
