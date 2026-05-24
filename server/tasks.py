@@ -329,6 +329,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
             record.ticker, record.trade_date, asset_type="stock", past_context=""
         )
 
+        report_key: str | None = None
         if is_analyst_stage:
             _, report_key = _ANALYST_STAGE_MAP[stage]
             for fld in _ALL_REPORT_FIELDS:
@@ -347,6 +348,20 @@ def rerun_stage(self, analysis_id: str, stage: str):
 
         for chunk in ta.graph.stream(init_state, **args):
             final_state.update(chunk)
+
+            # ── Analyst-only rerun: stop as soon as target report appears ──
+            if report_key and final_state.get(report_key):
+                new_result = dict(existing)
+                new_result[report_key] = final_state[report_key]
+                record.result = new_result
+                record.status = "complete"
+                record.stage = "complete"
+                record.stage_detail = f"{label} 重新分析完成"
+                record.completed_at = datetime.utcnow()
+                record.seen = False
+                db.commit()
+                return   # ← exit task; do NOT run debate/risk/decision
+
             new_fields = {
                 f: final_state[f]
                 for f in _PARTIAL_FIELDS
@@ -360,6 +375,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
             new_stage, detail = _detect_progress(final_state, record)
             _update_progress(db, record, stage=new_stage, detail=detail)
 
+        # ── Decision-stage rerun: full pipeline finished ───────────────────
         raw_decision = _strip_tool_call_prefix(final_state.get("final_trade_decision", ""))
         decision_str = ta.process_signal(raw_decision) if raw_decision else ""
         decision = _extract_decision_label(decision_str) if decision_str else record.decision
