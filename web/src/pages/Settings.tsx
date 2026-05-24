@@ -108,7 +108,90 @@ function FutuPanel() {
   )
 }
 
-// ── ModelInput: dropdown quick-select + free-text input (always editable) ────
+// ── LiveModelPicker modal ─────────────────────────────────────────────────────
+type LiveModel = { id: string; free_tier: boolean }
+
+function LiveModelPicker({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (id: string) => void
+  onClose: () => void
+}) {
+  const [models, setModels] = useState<LiveModel[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+
+  useEffect(() => {
+    api.getLiveModels()
+      .then((r) => setModels(r.models))
+      .catch((e) => setError(e?.response?.data?.detail ?? "获取失败"))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const filtered = query.trim()
+    ? models.filter((m) => m.id.toLowerCase().includes(query.trim().toLowerCase()))
+    : models
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface border border-border rounded-xl w-full max-w-md shadow-2xl flex flex-col" style={{ maxHeight: "80vh" }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <h3 className="text-sm font-semibold text-white">选择模型</h3>
+            {!loading && !error && (
+              <p className="text-xs text-gray-500 mt-0.5">
+                共 {models.length} 个文本模型
+                <span className="ml-2 text-yellow-500/80">★ 含免费额度</span>
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-lg leading-none">×</button>
+        </div>
+
+        <div className="px-4 py-3 border-b border-border shrink-0">
+          <input
+            autoFocus
+            className="w-full bg-bg border border-border rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-accent"
+            placeholder="搜索模型名称…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          {loading && <p className="text-center text-gray-500 text-sm py-8">获取中…</p>}
+          {error && <p className="text-center text-red-400 text-sm py-8">{error}</p>}
+          {!loading && !error && filtered.length === 0 && (
+            <p className="text-center text-gray-500 text-sm py-8">无匹配结果</p>
+          )}
+          {!loading && !error && filtered.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => { onSelect(m.id); onClose() }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-white/5 text-left group"
+            >
+              <span className="text-sm text-gray-200 font-mono group-hover:text-white">{m.id}</span>
+              {m.free_tier && (
+                <span className="text-xs text-yellow-500/80 shrink-0 ml-2">★ 免费</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-4 py-3 border-t border-border shrink-0 text-xs text-gray-600 text-center">
+          实际免费用量请在
+          <a href="https://bailian.console.aliyun.com" target="_blank" rel="noreferrer" className="text-accent hover:underline mx-1">百炼控制台</a>
+          查看
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── ModelInput: text input + live picker button ───────────────────────────────
 function ModelInput({
   label,
   hint,
@@ -116,6 +199,7 @@ function ModelInput({
   value,
   onChange,
   loading,
+  canPickLive,
 }: {
   label: string
   hint: string
@@ -123,8 +207,10 @@ function ModelInput({
   value: string
   onChange: (v: string) => void
   loading: boolean
+  canPickLive?: boolean
 }) {
-  // Which dropdown option is currently selected (empty string = none / custom)
+  const [showPicker, setShowPicker] = useState(false)
+
   const knownValues = models.map((m) => m.value).filter((v) => v !== "custom")
   const dropdownValue = knownValues.includes(value) ? value : ""
 
@@ -134,19 +220,30 @@ function ModelInput({
 
   return (
     <div>
-      <label className="block text-sm text-gray-400 mb-1">
-        {label}
-        <span className="ml-1 text-gray-500 text-xs">（{hint}）</span>
-      </label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-sm text-gray-400">
+          {label}
+          <span className="ml-1 text-gray-500 text-xs">（{hint}）</span>
+        </label>
+        {canPickLive && (
+          <button
+            type="button"
+            onClick={() => setShowPicker(true)}
+            className="text-xs text-accent hover:underline"
+          >
+            🔄 获取实时模型
+          </button>
+        )}
+      </div>
 
-      {/* Quick-select dropdown */}
+      {/* Quick-select dropdown from static catalog */}
       <select
         className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent disabled:opacity-50 mb-1.5"
         value={dropdownValue}
         onChange={(e) => handleDropdown(e.target.value)}
         disabled={loading}
       >
-        <option value="">— 从列表选择 —</option>
+        <option value="">— 从预设列表选择 —</option>
         {loading
           ? <option disabled>加载中…</option>
           : models.filter((m) => m.value !== "custom").map((m) => (
@@ -155,7 +252,7 @@ function ModelInput({
         }
       </select>
 
-      {/* Free-text input — always visible, single source of truth */}
+      {/* Free-text input — single source of truth */}
       <input
         type="text"
         className="w-full bg-bg border border-border rounded-md px-3 py-1.5 text-white text-sm focus:outline-none focus:border-accent placeholder-gray-600"
@@ -163,6 +260,13 @@ function ModelInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
+
+      {showPicker && (
+        <LiveModelPicker
+          onSelect={onChange}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
     </div>
   )
 }
@@ -324,6 +428,7 @@ export default function SettingsPage() {
           value={deepModel}
           onChange={setDeepModel}
           loading={loadingModels}
+          canPickLive={saved?.has_api_key && (provider === "qwen-cn" || provider === "qwen")}
         />
 
         {/* Quick Model */}
@@ -334,6 +439,7 @@ export default function SettingsPage() {
           value={quickModel}
           onChange={setQuickModel}
           loading={loadingModels}
+          canPickLive={saved?.has_api_key && (provider === "qwen-cn" || provider === "qwen")}
         />
 
         {/* Backend URL */}
