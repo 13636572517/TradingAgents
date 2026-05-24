@@ -11,6 +11,8 @@ from .y_finance import (
     get_insider_transactions as get_yfinance_insider_transactions,
 )
 from .yfinance_news import get_news_yfinance, get_global_news_yfinance
+from .newsapi_news import NewsAPIError, get_news_newsapi, get_global_news_newsapi
+from .tavily_news import TavilyError, get_news_tavily, get_global_news_tavily
 from .alpha_vantage import (
     get_stock as get_alpha_vantage_stock,
     get_indicator as get_alpha_vantage_indicator,
@@ -169,14 +171,18 @@ VENDOR_METHODS = {
         "yfinance": get_yfinance_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
     },
-    # news_data — CN vendors first, alpha_vantage last (requires API key)
+    # news_data — CN first, then international (newsapi → tavily → yfinance → alpha_vantage)
     "get_news": {
-        "akshare": get_cn_news,            # CN primary
-        "yfinance": get_news_yfinance,     # US/HK fallback
-        "alpha_vantage": get_alpha_vantage_news,  # last resort
+        "akshare": get_cn_news,               # CN primary (Eastmoney + 财联社)
+        "newsapi": get_news_newsapi,           # Intl primary (100 req/day free)
+        "tavily": get_news_tavily,             # Intl fallback (1000 req/mo free)
+        "yfinance": get_news_yfinance,         # Blocked on CN servers
+        "alpha_vantage": get_alpha_vantage_news,
     },
     "get_global_news": {
-        "akshare": get_cn_global_news,     # CN primary
+        "akshare": get_cn_global_news,         # CN primary (Eastmoney + 财联社 + 央视)
+        "newsapi": get_global_news_newsapi,    # Intl primary
+        "tavily": get_global_news_tavily,      # Intl fallback
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
     },
@@ -276,7 +282,10 @@ def route_to_vendor(method: str, *args, **kwargs):
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
+            result = impl_func(*args, **kwargs)
+            if result is not None:
+                return result
+            errors.append(f"{vendor}: returned None")
         except Exception as exc:
             errors.append(f"{vendor}: {type(exc).__name__}: {exc}")
             continue  # try next vendor
