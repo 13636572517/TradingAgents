@@ -53,7 +53,8 @@ def main():
     run(client, "cd /opt/tradingagents && git stash 2>/dev/null; "
                 "sudo rm -f web/public/icons/apple-touch-icon.png "
                 "web/public/icons/icon-192.png web/public/icons/icon-512.png "
-                "web/public/icons/icon-180.png; git clean -fd", timeout=60)
+                "web/public/icons/icon-180.png; git clean -fd; "
+                "git restore .", timeout=60)
 
     # Test GitHub SSH connectivity
     print("\n[*] Testing GitHub SSH connectivity...")
@@ -172,5 +173,18 @@ def _rsync_and_build(client: paramiko.SSHClient) -> int:
     return rc
 
 
+def check_logs(lines: int = 80):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(HOST, username=USER, password="mCZ@20260101", timeout=15)
+    run(client, f"docker compose -f /opt/tradingagents/docker-compose.prod.yml "
+                f"logs --no-color --tail={lines} server", timeout=30)
+    client.close()
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "logs":
+        check_logs(int(sys.argv[2]) if len(sys.argv) > 2 else 80)
+    else:
+        main()
