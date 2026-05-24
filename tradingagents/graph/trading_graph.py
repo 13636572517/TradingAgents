@@ -135,7 +135,10 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        self.workflow = self.graph_setup.setup_graph(
+            selected_analysts,
+            decision_only=kwargs.get("decision_only", False),
+        )
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
 

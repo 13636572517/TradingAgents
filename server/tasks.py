@@ -284,7 +284,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
                      "final_trade_decision": "最终决策"}.get(stage, stage)
 
         record.status = "running"
-        record.stage = "analysts"
+        record.stage = "debate" if not is_analyst_stage else "analysts"
         record.stage_detail = f"正在重新分析: {label}…"
         record.celery_task_id = self.request.id
         db.commit()
@@ -324,6 +324,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
             debug=True,
             config=config,
             callbacks=[usage_tracker],
+            decision_only=(not is_analyst_stage),
         )
         init_state = ta.propagator.create_initial_state(
             record.ticker, record.trade_date, asset_type="stock", past_context=""
@@ -332,8 +333,15 @@ def rerun_stage(self, analysis_id: str, stage: str):
         report_key: str | None = None
         if is_analyst_stage:
             _, report_key = _ANALYST_STAGE_MAP[stage]
+            # Pre-populate all other analyst reports so only the target one is re-run
             for fld in _ALL_REPORT_FIELDS:
                 if fld != report_key and existing.get(fld):
+                    init_state[fld] = existing[fld]
+        else:
+            # Decision-only rerun: inject all existing analyst reports so the
+            # debate/trader/decision nodes can use them directly
+            for fld in _ALL_REPORT_FIELDS:
+                if existing.get(fld):
                     init_state[fld] = existing[fld]
 
         args = ta.propagator.get_graph_args()
