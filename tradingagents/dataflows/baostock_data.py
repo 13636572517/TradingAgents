@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Annotated
 
 import pandas as pd
+from .stockstats_utils import fix_cn_exchange
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ class BaoStockError(Exception):
 # ── Ticker conversion ──────────────────────────────────────────────────────────
 
 def _to_bs_code(ticker: str) -> str:
-    """600519.SS → sh.600519 | 000001.SZ → sz.000001"""
-    t = ticker.upper().strip()
+    """600519.SS → sh.600519 | 000001.SZ → sz.000001 | 513180.SZ → sh.513180 (auto-corrected)"""
+    t = fix_cn_exchange(ticker).upper().strip()
     if t.endswith(".SS"):
         return "sh." + t.replace(".SS", "")
     if t.endswith(".SZ"):

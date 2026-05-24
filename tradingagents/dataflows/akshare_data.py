@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Annotated, Optional
 
 from dateutil.relativedelta import relativedelta
+from .stockstats_utils import fix_cn_exchange
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ def detect_cn_market(ticker: str) -> str:
 
 
 def _yf_to_akshare_a_code(ticker: str) -> str:
-    """600519.SS → sh600519,  000001.SZ → sz000001"""
-    parts = ticker.upper().rsplit(".", 1)
+    """600519.SS → sh600519,  000001.SZ → sz000001 | 513180.SZ → sh513180 (auto-corrected)"""
+    parts = fix_cn_exchange(ticker).upper().rsplit(".", 1)
     code = parts[0]
     suffix = parts[1] if len(parts) > 1 else ""
     if suffix == "SS":

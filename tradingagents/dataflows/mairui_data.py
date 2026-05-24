@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Annotated
 
 import requests
+from .stockstats_utils import fix_cn_exchange
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,9 @@ def _to_mr_code(ticker: str) -> str:
 
     600519.SS → 600519.SH   (Shanghai: .SS → .SH)
     000001.SZ → 000001.SZ   (Shenzhen: unchanged)
+    513180.SZ → 513180.SH   (auto-corrected: Shanghai ETF mis-labelled as SZ)
     """
-    t = ticker.upper().strip()
+    t = fix_cn_exchange(ticker).upper().strip()
     if t.endswith(".SS"):
         return t[:-3] + ".SH"
     return t   # .SZ stays as-is
