@@ -217,6 +217,7 @@ function AnalysisWorkspace({
                     : "pending"
 
                   const isRerunning = rerunningStageName === item.stage
+                  const canRerun = !isRunning && (hasContent || analysis.status === "failed" || analysis.status === "stopped")
                   return (
                     <div
                       key={item.key}
@@ -241,14 +242,14 @@ function AnalysisWorkspace({
                         <span>{item.icon}</span>
                         <span className="truncate">{item.label}</span>
                       </button>
-                      {hasContent && !isRunning && (
+                      {canRerun && (
                         <button
                           onClick={() => handleRerun(item.stage)}
                           disabled={!!rerunningStageName}
                           title={`重新分析: ${item.label}`}
                           className="shrink-0 px-1.5 py-1 mr-1 text-xs text-gray-600 hover:text-accent hover:bg-accent/10 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-30"
                         >
-                          {isRerunning ? "…" : "↺"}
+                          {isRerunning ? "…" : (hasContent ? "↺" : "▶")}
                         </button>
                       )}
                     </div>
@@ -347,8 +348,23 @@ function AnalysisWorkspace({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
-              从左侧选择一个分析报告
+            <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-500 text-sm">
+              {!isRunning && (() => {
+                const activeItem = TREE.flatMap((g) => g.items).find((it) => it.key === activeKey)
+                const canRerunEmpty = activeItem && (analysis.status === "failed" || analysis.status === "stopped")
+                return canRerunEmpty ? (
+                  <>
+                    <span>此环节尚未完成</span>
+                    <button
+                      onClick={() => handleRerun(activeItem.stage)}
+                      disabled={!!rerunningStageName}
+                      className="text-sm px-4 py-2 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
+                    >
+                      {rerunningStageName === activeItem.stage ? "提交中…" : "▶ 单独分析此环节"}
+                    </button>
+                  </>
+                ) : <span>从左侧选择一个分析报告</span>
+              })()}
             </div>
           )}
         </div>
@@ -386,19 +402,8 @@ export default function Report() {
       setAnalysis(a)
       setLoading(false)
 
-      if (a.status === "complete" || a.status === "failed") return
-
-      const es = openProgressStream(
-        id,
-        (event) => {
-          setProgress(event)
-          if ((event as any).refresh) {
-            api.getAnalysis(id).then(setAnalysis)
-          }
-        },
-        () => api.getAnalysis(id).then(setAnalysis)
-      )
-      esRef.current = es
+      if (a.status === "complete" || a.status === "failed" || a.status === "stopped") return
+      openStream(id)
     })
     return () => esRef.current?.close()
   }, [id])
@@ -429,9 +434,35 @@ export default function Report() {
   const isStopped = displayStatus === "stopped"
   const isFailed = displayStatus === "failed"
 
+  const openStream = (analysisId: string) => {
+    esRef.current?.close()
+    const es = openProgressStream(
+      analysisId,
+      (event) => {
+        setProgress(event)
+        if ((event as any).refresh) {
+          api.getAnalysis(analysisId).then(setAnalysis)
+        }
+      },
+      () => api.getAnalysis(analysisId).then((a) => {
+        setAnalysis(a)
+        setProgress(null)
+      })
+    )
+    esRef.current = es
+  }
+
   const handleStopped = () => {
     esRef.current?.close()
-    api.getAnalysis(id!).then(setAnalysis)
+    esRef.current = null
+    api.getAnalysis(id!).then((a) => {
+      setAnalysis(a)
+      setProgress(null)
+      // Re-run was triggered: re-open SSE stream so UI reflects progress
+      if (a.status === "pending" || a.status === "running") {
+        openStream(id!)
+      }
+    })
   }
 
   // Unified two-panel view: running / stopped / failed-with-partial / complete
