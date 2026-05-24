@@ -19,8 +19,8 @@ export default function Sidebar({ unseen, onHistoryClick }: Props) {
 
   return (
     <aside className="hidden md:flex w-14 bg-surface border-r border-border flex-col items-center py-4 gap-6 shrink-0">
-      <div className="w-8 h-8 rounded bg-accent/20 flex items-center justify-center text-accent font-bold text-sm">
-        TA
+      <div className="w-8 h-8 rounded overflow-hidden">
+        <img src="/favicon.png" alt="御智投研" className="w-full h-full object-cover" />
       </div>
       {NAV.map((item) =>
         item.to === "/history" ? (
