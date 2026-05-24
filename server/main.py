@@ -58,5 +58,16 @@ def on_startup():
 # Serve React build in production (web/dist must exist)
 _dist = Path(__file__).parent.parent / "web" / "dist"
 if _dist.exists():
+    from fastapi.responses import FileResponse, Response
     from fastapi.staticfiles import StaticFiles
+
+    # SPA catch-all: non-API paths that don't match a real file get index.html
+    # This must be registered BEFORE the StaticFiles mount so FastAPI sees it first.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str) -> Response:
+        candidate = _dist / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(_dist / "index.html"))
+
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="static")
