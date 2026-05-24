@@ -9,7 +9,10 @@ import { KLineModal } from "../components/KLineModal"
 
 
 // ── Section tree definition ───────────────────────────────────────────────────
-const TREE = [
+type TreeItem = { key: string; label: string; icon: string; analyst: string | null; stage: string }
+type TreeGroup = { group: string; icon: string; items: TreeItem[] }
+
+const TREE: TreeGroup[] = [
   {
     group: "分析师团队",
     icon: "🔍",
