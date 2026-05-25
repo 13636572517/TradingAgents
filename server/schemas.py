@@ -49,6 +49,8 @@ class SettingsUpdate(BaseModel):
     quick_model: str
     backend_url: Optional[str] = None
     max_api_calls: int = 60
+    input_cost_per_million: float = 0.0
+    output_cost_per_million: float = 0.0
 
 
 class SettingsOut(BaseModel):
@@ -58,5 +60,7 @@ class SettingsOut(BaseModel):
     backend_url: Optional[str]
     has_api_key: bool                  # true if key is stored, never expose the key itself
     max_api_calls: int = 60
+    input_cost_per_million: float = 0.0
+    output_cost_per_million: float = 0.0
 
     model_config = {"from_attributes": True}

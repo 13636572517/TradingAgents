@@ -52,6 +52,8 @@ def get_settings(db: Session = Depends(get_db)):
         backend_url=row.backend_url,
         has_api_key=bool(row.api_key),
         max_api_calls=row.max_api_calls if row.max_api_calls is not None else 60,
+        input_cost_per_million=row.input_cost_per_million or 0.0,
+        output_cost_per_million=row.output_cost_per_million or 0.0,
     )
 
 
@@ -65,6 +67,8 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     row.quick_model = payload.quick_model
     row.backend_url = payload.backend_url or None
     row.max_api_calls = max(10, min(payload.max_api_calls, 1000))
+    row.input_cost_per_million = payload.input_cost_per_million
+    row.output_cost_per_million = payload.output_cost_per_million
     row.updated_at = datetime.utcnow()
     if payload.api_key:
         row.api_key = payload.api_key
@@ -77,6 +81,8 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         backend_url=row.backend_url,
         has_api_key=bool(row.api_key),
         max_api_calls=row.max_api_calls,
+        input_cost_per_million=row.input_cost_per_million or 0.0,
+        output_cost_per_million=row.output_cost_per_million or 0.0,
     )
 
 

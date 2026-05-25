@@ -23,8 +23,13 @@ function Row({ label, slot }: { label: string; slot: UsageStats["quick"] }) {
           <span className="text-gray-500 text-xs">工具 {slot.tool_calls}次</span>
         </>
       )}
-      <span className="ml-auto text-gray-400 font-mono text-xs">
-        {totalTokens > 0 ? fmt(totalTokens) : "-"}
+      <span className="ml-auto flex items-center gap-2">
+        {slot.cost_cny > 0 && (
+          <span className="text-gray-400 font-mono text-xs">¥{slot.cost_cny.toFixed(4)}</span>
+        )}
+        <span className="text-gray-500 font-mono text-xs">
+          {totalTokens > 0 ? fmt(totalTokens) : "-"}
+        </span>
       </span>
     </div>
   )
@@ -43,8 +48,13 @@ export default function UsageCard({ usage }: { usage: UsageStats }) {
         <Row label="深度模型" slot={usage.deep} />
         <div className="border-t border-border pt-2 flex justify-between text-sm">
           <span className="text-gray-500">合计</span>
-          <span className="text-white font-semibold">
-            {totalTokens > 0 ? fmt(totalTokens) : "-"}
+          <span className="flex items-center gap-2">
+            {usage.total_cost_cny > 0 && (
+              <span className="text-accent font-mono text-sm">¥{usage.total_cost_cny.toFixed(4)}</span>
+            )}
+            <span className="text-white font-semibold">
+              {totalTokens > 0 ? fmt(totalTokens) : "-"}
+            </span>
           </span>
         </div>
         <div className="text-xs text-gray-600">

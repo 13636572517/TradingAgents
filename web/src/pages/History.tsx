@@ -108,7 +108,7 @@ function AnalysisCard({
         ))}
       </div>
 
-      {/* Footer: time + tokens */}
+      {/* Footer: time + tokens + cost */}
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-600">
           {new Date(analysis.created_at).toLocaleString("zh-CN", {
@@ -117,14 +117,21 @@ function AnalysisCard({
           })}
         </span>
         {analysis.usage && (
-          <span className="text-xs font-mono text-gray-400 bg-bg border border-border rounded px-1.5 py-0.5">
-            {(() => {
-              const total = (
-                analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
-                analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
-              )
-              return total > 0 ? `${total.toLocaleString()} tokens` : ""
-            })()}
+          <span className="flex items-center gap-2">
+            {analysis.usage.total_cost_cny > 0 && (
+              <span className="text-xs font-mono text-accent bg-bg border border-border rounded px-1.5 py-0.5">
+                ¥{analysis.usage.total_cost_cny.toFixed(4)}
+              </span>
+            )}
+            <span className="text-xs font-mono text-gray-400 bg-bg border border-border rounded px-1.5 py-0.5">
+              {(() => {
+                const total = (
+                  analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
+                  analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
+                )
+                return total > 0 ? `${total.toLocaleString()} tokens` : ""
+              })()}
+            </span>
           </span>
         )}
       </div>

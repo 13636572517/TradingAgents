@@ -6,17 +6,21 @@ LangChain passes it to both the quick and deep LLM clients, so the tracker
 identifies which model fired each event via invocation_params and routes to
 the appropriate per-role sub-tracker.
 
-All cost estimation has been removed — we now track raw token counts only.
-Users can check their actual bills on the provider's dashboard.
+Cost estimation uses user-configurable prices per 1M tokens (input/output).
+If prices are not set (0.0), cost_cny will be 0.0 — users can check their
+actual bills on the provider's dashboard.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Dict
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import LLMResult
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_model_name(kwargs: dict) -> str | None:
@@ -29,13 +33,25 @@ def _extract_model_name(kwargs: dict) -> str | None:
 # ── Per-role slot ──────────────────────────────────────────────────────────────
 
 class _Slot:
-    def __init__(self, model_name: str, role: str):
+    def __init__(self, model_name: str, role: str, input_cost_per_million: float = 0.0, output_cost_per_million: float = 0.0):
         self.model_name = model_name
         self.role = role
         self.calls = 0
         self.tokens_in = 0
         self.tokens_out = 0
         self.tool_calls = 0
+        self.input_cost_per_million = input_cost_per_million
+        self.output_cost_per_million = output_cost_per_million
+
+    def _calc_cost(self) -> float:
+        """Calculate cost in CNY based on token counts and configured prices."""
+        if self.input_cost_per_million <= 0 and self.output_cost_per_million <= 0:
+            return 0.0
+        cost = (
+            self.tokens_in / 1_000_000 * self.input_cost_per_million +
+            self.tokens_out / 1_000_000 * self.output_cost_per_million
+        )
+        return round(cost, 4)
 
     def to_dict(self) -> dict:
         return {
@@ -44,6 +60,7 @@ class _Slot:
             "tokens_in":  self.tokens_in,
             "tokens_out": self.tokens_out,
             "tool_calls": self.tool_calls,
+            "cost_cny":   self._calc_cost(),
         }
 
 
@@ -56,11 +73,12 @@ class APICallLimitError(RuntimeError):
 class CombinedUsageTracker(BaseCallbackHandler):
     """Single callback handler that routes events to quick/deep slots by model name."""
 
-    def __init__(self, quick_model: str, deep_model: str, max_calls: int = 60) -> None:
+    def __init__(self, quick_model: str, deep_model: str, max_calls: int = 60,
+                 input_cost_per_million: float = 0.0, output_cost_per_million: float = 0.0) -> None:
         super().__init__()
         self._lock = threading.Lock()
-        self.quick = _Slot(quick_model, "quick")
-        self.deep  = _Slot(deep_model,  "deep")
+        self.quick = _Slot(quick_model, "quick", input_cost_per_million, output_cost_per_million)
+        self.deep  = _Slot(deep_model,  "deep",  input_cost_per_million, output_cost_per_million)
         self.max_calls = max_calls
         # thread-local to remember which slot fired on_chat_model_start
         self._active: threading.local = threading.local()
@@ -134,7 +152,9 @@ class CombinedUsageTracker(BaseCallbackHandler):
         with self._lock:
             q = self.quick.to_dict()
             d = self.deep.to_dict()
+        total_cost = round(q["cost_cny"] + d["cost_cny"], 4)
         return {
-            "quick": q,
-            "deep":  d,
+            "quick":          q,
+            "deep":           d,
+            "total_cost_cny": total_cost,
         }

@@ -1,7 +1,7 @@
 # server/models.py
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, JSON
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, JSON
 from server.database import Base
 
 
@@ -50,6 +50,9 @@ class AppSettings(Base):
     quick_model     = Column(String(100), default="qwen3.6-flash")
     backend_url     = Column(Text)                          # optional proxy / custom endpoint
     max_api_calls   = Column(Integer, default=60)           # per-run API call limit guard
+    # Cost per 1M tokens (CNY) — user-configurable, used for cost estimation
+    input_cost_per_million  = Column(Float, default=0.0)    # CNY per 1M input tokens
+    output_cost_per_million = Column(Float, default=0.0)    # CNY per 1M output tokens
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

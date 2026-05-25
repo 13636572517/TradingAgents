@@ -291,22 +291,32 @@ function AnalysisWorkspace({
                   return (
                     <div key={role} className="flex justify-between text-gray-400">
                       <span>{role === "quick" ? "快速" : "深度"} {s.calls}次</span>
-                      <span className="text-gray-500 font-mono">
-                        {total > 0 ? `${total.toLocaleString()} tokens` : "-"}
+                      <span className="flex items-center gap-2">
+                        {s.cost_cny > 0 && (
+                          <span className="text-gray-500">¥{s.cost_cny.toFixed(4)}</span>
+                        )}
+                        <span className="text-gray-500 font-mono">
+                          {total > 0 ? `${total.toLocaleString()} tokens` : "-"}
+                        </span>
                       </span>
                     </div>
                   )
                 })}
                 <div className="flex justify-between text-white border-t border-border pt-1">
                   <span>合计</span>
-                  <span className="font-mono">
-                    {(() => {
-                      const total = (
-                        analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
-                        analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
-                      )
-                      return total > 0 ? `${total.toLocaleString()} tokens` : "-"
-                    })()}
+                  <span className="flex items-center gap-2 font-mono">
+                    {analysis.usage.total_cost_cny > 0 && (
+                      <span className="text-accent">¥{analysis.usage.total_cost_cny.toFixed(4)}</span>
+                    )}
+                    <span>
+                      {(() => {
+                        const total = (
+                          analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
+                          analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
+                        )
+                        return total > 0 ? `${total.toLocaleString()} tokens` : "-"
+                      })()}
+                    </span>
                   </span>
                 </div>
               </div>

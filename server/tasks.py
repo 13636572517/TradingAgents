@@ -167,10 +167,14 @@ def run_analysis(self, analysis_id: str):
         from server.models import AppSettings as _AppSettings
         _app_cfg = db.get(_AppSettings, 1)
         _max_calls = (_app_cfg.max_api_calls if _app_cfg and _app_cfg.max_api_calls else 60)
+        _input_cost = (_app_cfg.input_cost_per_million if _app_cfg else 0.0) or 0.0
+        _output_cost = (_app_cfg.output_cost_per_million if _app_cfg else 0.0) or 0.0
         usage_tracker = CombinedUsageTracker(
             quick_model=config["quick_think_llm"],
             deep_model=config["deep_think_llm"],
             max_calls=_max_calls,
+            input_cost_per_million=_input_cost,
+            output_cost_per_million=_output_cost,
         )
 
         ta = TradingAgentsGraph(
@@ -327,10 +331,14 @@ def rerun_stage(self, analysis_id: str, stage: str):
         from server.models import AppSettings as _AppSettings
         _app_cfg = db.get(_AppSettings, 1)
         _max_calls = (_app_cfg.max_api_calls if _app_cfg and _app_cfg.max_api_calls else 60)
+        _input_cost = (_app_cfg.input_cost_per_million if _app_cfg else 0.0) or 0.0
+        _output_cost = (_app_cfg.output_cost_per_million if _app_cfg else 0.0) or 0.0
         usage_tracker = CombinedUsageTracker(
             quick_model=config["quick_think_llm"],
             deep_model=config["deep_think_llm"],
             max_calls=_max_calls,
+            input_cost_per_million=_input_cost,
+            output_cost_per_million=_output_cost,
         )
 
         ta = TradingAgentsGraph(

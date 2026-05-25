@@ -33,8 +33,13 @@ function ModelRow({
           <span className="text-white font-semibold">{role === "quick" ? "快速模型" : "深度模型"}</span>
           <span className="ml-2 text-gray-500 text-xs">{slot.model}</span>
         </div>
-        <span className="text-white font-mono font-bold">
-          {totalTokens > 0 ? fmt(totalTokens) : "-"}
+        <span className="flex items-center gap-2">
+          {slot.cost_cny > 0 && (
+            <span className="text-accent font-mono font-bold text-sm">¥{slot.cost_cny.toFixed(4)}</span>
+          )}
+          <span className="text-white font-mono font-bold">
+            {totalTokens > 0 ? fmt(totalTokens) : "-"}
+          </span>
         </span>
       </div>
       <div className="grid grid-cols-3 gap-3 text-sm">
@@ -108,11 +113,14 @@ export default function StatsPage() {
       <h1 className="text-2xl font-bold text-white mb-6">用量统计</h1>
 
       {/* Summary boxes */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         <StatBox label="累计分析" value={String(stats.total_analyses)} sub={`${stats.completed_analyses} 次完成`} />
         <StatBox label="总 Token" value={fmt(totalTokens)} sub="输入 + 输出" />
         <StatBox label="总 LLM 调用" value={String(stats.quick.calls + stats.deep.calls)} />
         <StatBox label="总工具调用" value={String(stats.quick.tool_calls + stats.deep.tool_calls)} />
+        {stats.total_cost_cny > 0 && (
+          <StatBox label="总费用" value={`¥${stats.total_cost_cny.toFixed(3)}`} sub="估算值" />
+        )}
       </div>
 
       {/* Per-model breakdown */}
@@ -157,7 +165,7 @@ export default function StatsPage() {
       )}
 
       <p className="text-gray-600 text-xs mt-6">
-        * 显示所有已完成分析的 Token 用量统计。实际费用请以服务商账单为准。
+        * 费用基于配置的每百万 Token 价格计算（可在 API 配置页面修改）。实际费用请以服务商账单为准。
       </p>
     </div>
   )

@@ -284,6 +284,8 @@ export default function SettingsPage() {
   const [quickModel, setQuickModel] = useState("")
   const [backendUrl, setBackendUrl] = useState("")
   const [maxApiCalls, setMaxApiCalls] = useState(60)
+  const [inputCostPerMillion, setInputCostPerMillion] = useState(0.0)
+  const [outputCostPerMillion, setOutputCostPerMillion] = useState(0.0)
   const [showKey, setShowKey] = useState(false)
 
   const [saving, setSaving] = useState(false)
@@ -314,6 +316,8 @@ export default function SettingsPage() {
       setProvider(s.provider)
       setBackendUrl(s.backend_url ?? "")
       setMaxApiCalls(s.max_api_calls ?? 60)
+      setInputCostPerMillion(s.input_cost_per_million ?? 0.0)
+      setOutputCostPerMillion(s.output_cost_per_million ?? 0.0)
       api.getModels(s.provider).then((data) => {
         setQuickModels(data.quick)
         setDeepModels(data.deep)
@@ -345,6 +349,8 @@ export default function SettingsPage() {
         quick_model: quickModel.trim(),
         backend_url: backendUrl || undefined,
         max_api_calls: maxApiCalls,
+        input_cost_per_million: inputCostPerMillion,
+        output_cost_per_million: outputCostPerMillion,
       }
       if (apiKey.trim()) payload.api_key = apiKey.trim()
       const updated = await api.saveSettings(payload)
@@ -477,6 +483,43 @@ export default function SettingsPage() {
           />
         </div>
 
+        {/* Token cost per million */}
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">
+            每百万 Token 成本（CNY）
+            <span className="ml-1 text-gray-500 text-xs">（用于估算费用，留 0 则不显示费用）</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">输入成本</label>
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent"
+                placeholder="例如：0.004"
+                value={inputCostPerMillion || ""}
+                onChange={(e) => setInputCostPerMillion(Number(e.target.value) || 0)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">输出成本</label>
+              <input
+                type="number"
+                min={0}
+                step={0.001}
+                className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent"
+                placeholder="例如：0.016"
+                value={outputCostPerMillion || ""}
+                onChange={(e) => setOutputCostPerMillion(Number(e.target.value) || 0)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-600 mt-1">
+            示例：百炼 qwen3.6-plus 输入 ¥0.004/千 Token = ¥4/百万，输出 ¥0.016/千 Token = ¥16/百万
+          </p>
+        </div>
+
         {saveMsg && (
           <p className={`text-sm ${saveMsg.ok ? "text-buy" : "text-red-400"}`}>
             {saveMsg.text}
@@ -559,6 +602,14 @@ export default function SettingsPage() {
             </span>
             <span className="text-gray-500">调用上限</span>
             <span>{saved.max_api_calls ?? 60} 次/分析</span>
+            {(saved.input_cost_per_million > 0 || saved.output_cost_per_million > 0) && (
+              <>
+                <span className="text-gray-500">输入成本</span>
+                <span className="font-mono text-xs">¥{saved.input_cost_per_million}/百万 Token</span>
+                <span className="text-gray-500">输出成本</span>
+                <span className="font-mono text-xs">¥{saved.output_cost_per_million}/百万 Token</span>
+              </>
+            )}
             {saved.backend_url && (
               <>
                 <span className="text-gray-500">代理地址</span>
