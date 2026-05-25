@@ -48,6 +48,7 @@ class SettingsUpdate(BaseModel):
     deep_model: str
     quick_model: str
     backend_url: Optional[str] = None
+    max_api_calls: int = 60
 
 
 class SettingsOut(BaseModel):
@@ -56,5 +57,6 @@ class SettingsOut(BaseModel):
     quick_model: str
     backend_url: Optional[str]
     has_api_key: bool                  # true if key is stored, never expose the key itself
+    max_api_calls: int = 60
 
     model_config = {"from_attributes": True}

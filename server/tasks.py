@@ -164,9 +164,13 @@ def run_analysis(self, analysis_id: str):
 
         # Set up combined usage tracker — routes events to quick/deep by model name
         from server.usage import CombinedUsageTracker
+        from server.models import AppSettings as _AppSettings
+        _app_cfg = db.get(_AppSettings, 1)
+        _max_calls = (_app_cfg.max_api_calls if _app_cfg and _app_cfg.max_api_calls else 60)
         usage_tracker = CombinedUsageTracker(
             quick_model=config["quick_think_llm"],
             deep_model=config["deep_think_llm"],
+            max_calls=_max_calls,
         )
 
         ta = TradingAgentsGraph(
@@ -320,9 +324,13 @@ def rerun_stage(self, analysis_id: str, stage: str):
         config = _apply_llm_config(config, current_llm_config)
 
         from server.usage import CombinedUsageTracker
+        from server.models import AppSettings as _AppSettings
+        _app_cfg = db.get(_AppSettings, 1)
+        _max_calls = (_app_cfg.max_api_calls if _app_cfg and _app_cfg.max_api_calls else 60)
         usage_tracker = CombinedUsageTracker(
             quick_model=config["quick_think_llm"],
             deep_model=config["deep_think_llm"],
+            max_calls=_max_calls,
         )
 
         ta = TradingAgentsGraph(

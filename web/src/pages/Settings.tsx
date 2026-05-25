@@ -283,6 +283,7 @@ export default function SettingsPage() {
   const [deepModel, setDeepModel] = useState("")
   const [quickModel, setQuickModel] = useState("")
   const [backendUrl, setBackendUrl] = useState("")
+  const [maxApiCalls, setMaxApiCalls] = useState(60)
   const [showKey, setShowKey] = useState(false)
 
   const [saving, setSaving] = useState(false)
@@ -312,6 +313,7 @@ export default function SettingsPage() {
       setProviders(ps)
       setProvider(s.provider)
       setBackendUrl(s.backend_url ?? "")
+      setMaxApiCalls(s.max_api_calls ?? 60)
       api.getModels(s.provider).then((data) => {
         setQuickModels(data.quick)
         setDeepModels(data.deep)
@@ -342,6 +344,7 @@ export default function SettingsPage() {
         deep_model: deepModel.trim(),
         quick_model: quickModel.trim(),
         backend_url: backendUrl || undefined,
+        max_api_calls: maxApiCalls,
       }
       if (apiKey.trim()) payload.api_key = apiKey.trim()
       const updated = await api.saveSettings(payload)
@@ -457,6 +460,23 @@ export default function SettingsPage() {
           />
         </div>
 
+        {/* API call limit */}
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">
+            单次分析 API 调用上限
+            <span className="ml-1 text-gray-500 text-xs">（防止异常时反复调用，建议 60–120，depth=1 正常约 20–30 次）</span>
+          </label>
+          <input
+            type="number"
+            min={10}
+            max={1000}
+            step={10}
+            className="w-32 bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent"
+            value={maxApiCalls}
+            onChange={(e) => setMaxApiCalls(Math.max(10, Math.min(1000, Number(e.target.value) || 60)))}
+          />
+        </div>
+
         {saveMsg && (
           <p className={`text-sm ${saveMsg.ok ? "text-buy" : "text-red-400"}`}>
             {saveMsg.text}
@@ -537,6 +557,8 @@ export default function SettingsPage() {
             <span className={saved.has_api_key ? "text-buy" : "text-hold"}>
               {saved.has_api_key ? "✓ 已配置" : "⚠ 未配置"}
             </span>
+            <span className="text-gray-500">调用上限</span>
+            <span>{saved.max_api_calls ?? 60} 次/分析</span>
             {saved.backend_url && (
               <>
                 <span className="text-gray-500">代理地址</span>

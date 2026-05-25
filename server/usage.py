@@ -93,7 +93,7 @@ class APICallLimitError(RuntimeError):
 class CombinedUsageTracker(BaseCallbackHandler):
     """Single callback handler that routes events to quick/deep slots by model name."""
 
-    def __init__(self, quick_model: str, deep_model: str, max_calls: int = 300) -> None:
+    def __init__(self, quick_model: str, deep_model: str, max_calls: int = 60) -> None:
         super().__init__()
         self._lock = threading.Lock()
         self.quick = _Slot(quick_model, "quick")

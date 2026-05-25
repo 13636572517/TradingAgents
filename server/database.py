@@ -31,6 +31,7 @@ def init_db():
     # Lightweight migrations: add columns if they don't exist yet
     _migrate_add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0")
     _migrate_add_column("analyses", "owner_id", "INT NULL")
+    _migrate_add_column("app_settings", "max_api_calls", "INT NOT NULL DEFAULT 60")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:

@@ -43,13 +43,14 @@ class AppSettings(Base):
     """Single-row application settings table. Row id is always 1."""
     __tablename__ = "app_settings"
 
-    id           = Column(Integer, primary_key=True, default=1)
-    provider     = Column(String(30), default="qwen-cn")
-    api_key      = Column(Text)                          # stored as-is; never sent to frontend
-    deep_model   = Column(String(100), default="qwen3.6-plus")
-    quick_model  = Column(String(100), default="qwen3.6-flash")
-    backend_url  = Column(Text)                          # optional proxy / custom endpoint
-    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id              = Column(Integer, primary_key=True, default=1)
+    provider        = Column(String(30), default="qwen-cn")
+    api_key         = Column(Text)                          # stored as-is; never sent to frontend
+    deep_model      = Column(String(100), default="qwen3.6-plus")
+    quick_model     = Column(String(100), default="qwen3.6-flash")
+    backend_url     = Column(Text)                          # optional proxy / custom endpoint
+    max_api_calls   = Column(Integer, default=60)           # per-run API call limit guard
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class User(Base):

@@ -51,6 +51,7 @@ def get_settings(db: Session = Depends(get_db)):
         quick_model=row.quick_model or "qwen3.6-flash",
         backend_url=row.backend_url,
         has_api_key=bool(row.api_key),
+        max_api_calls=row.max_api_calls if row.max_api_calls is not None else 60,
     )
 
 
@@ -63,6 +64,7 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     row.deep_model = payload.deep_model
     row.quick_model = payload.quick_model
     row.backend_url = payload.backend_url or None
+    row.max_api_calls = max(10, min(payload.max_api_calls, 1000))
     row.updated_at = datetime.utcnow()
     if payload.api_key:
         row.api_key = payload.api_key
@@ -74,6 +76,7 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         quick_model=row.quick_model,
         backend_url=row.backend_url,
         has_api_key=bool(row.api_key),
+        max_api_calls=row.max_api_calls,
     )
 
 

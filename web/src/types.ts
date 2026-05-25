@@ -49,6 +49,7 @@ export interface Settings {
   quick_model: string
   backend_url: string | null
   has_api_key: boolean
+  max_api_calls: number
 }
 
 export interface SettingsUpdate {
@@ -57,6 +58,7 @@ export interface SettingsUpdate {
   deep_model: string
   quick_model: string
   backend_url?: string
+  max_api_calls: number
 }
 
 export interface ModelOption {
