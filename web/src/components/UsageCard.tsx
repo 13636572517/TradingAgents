@@ -8,7 +8,6 @@ function fmt(n: number) {
 }
 
 function Row({ label, slot }: { label: string; slot: UsageStats["quick"] }) {
-  const totalTokens = slot.tokens_in + slot.tokens_out
   return (
     <div className="flex items-center gap-3 text-sm">
       <span className="text-gray-500 w-20 shrink-0">{label}</span>
