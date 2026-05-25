@@ -4,6 +4,7 @@
 Data sources (loaded once, cached in memory):
   - A-share stocks : ak.stock_info_a_code_name()   ~5 500 records
   - A-share ETFs   : ak.fund_etf_spot_em()          ~1 500 records
+  - HK stocks      : ak.stock_hk_spot_em()          ~3 000 records
 """
 import logging
 from functools import lru_cache
@@ -26,7 +27,7 @@ def _suffix(code: str) -> str:
 
 @lru_cache(maxsize=1)
 def _load_securities() -> list:
-    """Load A-share stocks + ETFs from AkShare. Cached for process lifetime."""
+    """Load A-share stocks + ETFs + HK stocks from AkShare. Cached for process lifetime."""
     try:
         import akshare as ak
     except ImportError:
@@ -36,18 +37,21 @@ def _load_securities() -> list:
     items: list = []
     seen: set = set()
 
-    def _add(code: str, name: str):
-        code = str(code).strip().zfill(6)
+    def _add(code: str, name: str, suffix: str = None, market: str = None):
+        code = str(code).strip()
         name = str(name).strip()
         if not code or not name or code in seen:
             return
         seen.add(code)
-        suffix = _suffix(code)
+        if suffix is None:
+            suffix = _suffix(code) if len(code) == 6 and code.isdigit() else ""
+        if market is None:
+            market = "沪市" if suffix == ".SS" else ("深市" if suffix == ".SZ" else "北交所" if suffix == ".BJ" else "港股")
         items.append({
             "ticker": f"{code}{suffix}",
             "name": name,
             "code": code,
-            "market": "沪市" if suffix == ".SS" else ("深市" if suffix == ".SZ" else "北交所"),
+            "market": market,
         })
 
     # ── A-share stocks ────────────────────────────────────────────────────
@@ -70,6 +74,22 @@ def _load_securities() -> list:
             logger.info("Loaded %d ETFs (total %d)", len(items) - etf_before, len(items))
     except Exception as e:
         logger.warning("Failed to load ETF list: %s", e)
+
+    # ── HK stocks ─────────────────────────────────────────────────────────
+    hk_before = len(items)
+    try:
+        df = ak.stock_hk_spot_em()
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                code = str(row.get("代码", "")).strip()
+                name = str(row.get("名称", "")).strip()
+                if code and code.isdigit():
+                    # Pad HK codes to 4 digits (e.g., 2513 → 02513)
+                    code = code.zfill(4)
+                    _add(code, name, suffix=".HK", market="港股")
+            logger.info("Loaded %d HK stocks (total %d)", len(items) - hk_before, len(items))
+    except Exception as e:
+        logger.warning("Failed to load HK stock list: %s", e)
 
     return items
 
