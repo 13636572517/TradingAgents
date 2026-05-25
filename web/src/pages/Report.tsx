@@ -47,16 +47,34 @@ function fmtElapsed(s: number) {
   if (s <= 0) return ""
   return s >= 60 ? `${Math.floor(s / 60)}分${s % 60}秒` : `${s}秒`
 }
-function useElapsed(running: boolean, startedAt: string | null) {
-  const getSeconds = () =>
-    startedAt ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0
-  const [elapsed, setElapsed] = useState(getSeconds)
+
+/**
+ * Track elapsed time for the current stage only.
+ * Resets when stage or stage_detail changes.
+ */
+function useStageElapsed(running: boolean, stage: string | null, stageDetail: string | null) {
+  const stageStartRef = useRef<number>(Date.now())
+  const [elapsed, setElapsed] = useState(0)
+
+  // Reset timer when stage or detail changes
+  useEffect(() => {
+    if (running) {
+      stageStartRef.current = Date.now()
+      setElapsed(0)
+    }
+  }, [running, stage, stageDetail])
+
   useEffect(() => {
     if (!running) return
-    setElapsed(getSeconds())
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
+    const tick = () => {
+      const s = Math.max(0, Math.floor((Date.now() - stageStartRef.current) / 1000))
+      setElapsed(s)
+    }
+    tick()
+    const t = setInterval(tick, 1000)
     return () => clearInterval(t)
-  }, [running, startedAt])
+  }, [running])
+
   return fmtElapsed(elapsed)
 }
 
@@ -74,7 +92,9 @@ function AnalysisWorkspace({
 }) {
   const result = analysis.result ?? {}
   const selectedAnalysts = analysis.analysts ?? []
-  const elapsed = useElapsed(isRunning, analysis.created_at)
+  const displayStage  = progress?.stage  ?? analysis.stage
+  const displayDetail = progress?.detail ?? analysis.stage_detail
+  const elapsed = useStageElapsed(isRunning, displayStage, displayDetail)
   const [stopping, setStopping] = useState(false)
   const [showKLine, setShowKLine] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -121,9 +141,6 @@ function AnalysisWorkspace({
       if (first) setActiveKey(first.key)
     }
   }, [result])
-
-  const displayStage  = progress?.stage  ?? analysis.stage
-  const displayDetail = progress?.detail ?? analysis.stage_detail
 
   const activeContent = result[activeKey as keyof typeof result] as string | null | undefined
 
