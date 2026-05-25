@@ -14,7 +14,7 @@
 
 | 项目 | 值 |
 |------|-----|
-| IP | 47.103.133.232 |
+| IP / Domain | 47.103.133.232 / https://trading.yusuan.xyz |
 | SSH 用户 | admin |
 | 操作系统 | Linux（阿里云，待确认具体发行版） |
 | MySQL Host | 127.0.0.1:3306 |
@@ -147,7 +147,7 @@ server = [
 - uvicorn 容器在内部跑 8000，**映射到宿主机 `127.0.0.1:8001`**（仅本机可访问）
 - 宿主机 nginx 新增一个 server 块，监听外部 **8080** 端口，反向代理到 `127.0.0.1:8001`
 - 不在 docker-compose 里跑 nginx 容器，复用宿主机已有的 nginx
-- 外部访问地址：`http://47.103.133.232:8080`
+- 外部访问地址：`https://trading.yusuan.xyz`（原 `http://47.103.133.232:8080`）
 
 ---
 
@@ -254,7 +254,7 @@ echo "==> 等待服务启动..."
 sleep 5
 docker compose -f docker-compose.prod.yml ps
 
-echo "==> 部署完成。访问 http://47.103.133.232:8080"
+echo "==> 部署完成。访问 https://trading.yusuan.xyz"
 ```
 
 ---

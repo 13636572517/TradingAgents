@@ -34,7 +34,7 @@ function ModelRow({
           <span className="ml-2 text-gray-500 text-xs">{slot.model}</span>
         </div>
         <span className="text-white font-mono font-bold">
-          {slot.cost_cny > 0 ? `¥${slot.cost_cny.toFixed(4)}` : "-"}
+          {totalTokens > 0 ? fmt(totalTokens) : "-"}
         </span>
       </div>
       <div className="grid grid-cols-3 gap-3 text-sm">
@@ -101,7 +101,7 @@ export default function StatsPage() {
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-14)  // last 14 days
 
-  const maxCost = Math.max(...days.map(([, d]) => d.cost_cny), 0.0001)
+  const maxTokens = Math.max(...days.map(([, d]) => d.tokens), 0.0001)
 
   return (
     <div className="px-6 py-8 max-w-3xl mx-auto">
@@ -110,8 +110,8 @@ export default function StatsPage() {
       {/* Summary boxes */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <StatBox label="累计分析" value={String(stats.total_analyses)} sub={`${stats.completed_analyses} 次完成`} />
-        <StatBox label="总费用" value={stats.total_cost_cny > 0 ? `¥${stats.total_cost_cny.toFixed(3)}` : "-"} />
         <StatBox label="总 Token" value={fmt(totalTokens)} sub="输入 + 输出" />
+        <StatBox label="总 LLM 调用" value={String(stats.quick.calls + stats.deep.calls)} />
         <StatBox label="总工具调用" value={String(stats.quick.tool_calls + stats.deep.tool_calls)} />
       </div>
 
@@ -124,20 +124,20 @@ export default function StatsPage() {
             <ModelRow role="deep"  slot={stats.deep} />
           </div>
 
-          {/* Daily cost chart */}
+          {/* Daily token chart */}
           {days.length > 0 && (
             <>
-              <h2 className="text-gray-400 text-xs uppercase tracking-wide mb-3">每日费用（近14天）</h2>
+              <h2 className="text-gray-400 text-xs uppercase tracking-wide mb-3">每日 Token 用量（近14天）</h2>
               <div className="bg-surface border border-border rounded-xl p-4">
                 <div className="flex items-end gap-1.5 h-28">
                   {days.map(([date, d]) => (
                     <div key={date} className="flex-1 flex flex-col items-center gap-1 group">
                       <div className="text-xs text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                        ¥{d.cost_cny.toFixed(4)}
+                        {fmt(d.tokens)}
                       </div>
                       <div
                         className="w-full bg-accent/60 hover:bg-accent rounded-sm transition-colors min-h-[2px]"
-                        style={{ height: `${Math.max(2, (d.cost_cny / maxCost) * 80)}px` }}
+                        style={{ height: `${Math.max(2, (d.tokens / maxTokens) * 80)}px` }}
                       />
                       <div className="text-gray-600 text-[10px] rotate-45 origin-left whitespace-nowrap">
                         {date.slice(5)}
@@ -157,7 +157,7 @@ export default function StatsPage() {
       )}
 
       <p className="text-gray-600 text-xs mt-6">
-        * 费用为估算值，基于各模型官方公开定价。实际账单以服务商为准。
+        * 显示所有已完成分析的 Token 用量统计。实际费用请以服务商账单为准。
       </p>
     </div>
   )

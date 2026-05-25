@@ -270,11 +270,12 @@ function AnalysisWorkspace({
               <div className="space-y-1.5 text-xs">
                 {(["quick", "deep"] as const).map((role) => {
                   const s = analysis.usage![role]
+                  const total = s.tokens_in + s.tokens_out
                   return (
                     <div key={role} className="flex justify-between text-gray-400">
                       <span>{role === "quick" ? "快速" : "深度"} {s.calls}次</span>
                       <span className="text-gray-500 font-mono">
-                        {s.cost_cny > 0 ? `¥${s.cost_cny.toFixed(4)}` : "-"}
+                        {total > 0 ? `${total.toLocaleString()} tokens` : "-"}
                       </span>
                     </div>
                   )
@@ -282,9 +283,13 @@ function AnalysisWorkspace({
                 <div className="flex justify-between text-white border-t border-border pt-1">
                   <span>合计</span>
                   <span className="font-mono">
-                    {analysis.usage.total_cost_cny > 0
-                      ? `¥${analysis.usage.total_cost_cny.toFixed(4)}`
-                      : "-"}
+                    {(() => {
+                      const total = (
+                        analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
+                        analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
+                      )
+                      return total > 0 ? `${total.toLocaleString()} tokens` : "-"
+                    })()}
                   </span>
                 </div>
               </div>

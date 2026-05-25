@@ -2,18 +2,20 @@
 import type { UsageStats } from "../types"
 
 function fmt(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
 }
 
 function Row({ label, slot }: { label: string; slot: UsageStats["quick"] }) {
+  const totalTokens = slot.tokens_in + slot.tokens_out
   return (
     <div className="flex items-center gap-3 text-sm">
       <span className="text-gray-500 w-20 shrink-0">{label}</span>
       <span className="text-gray-300 w-10 text-right">{slot.calls}次</span>
       <span className="text-gray-500 mx-1">|</span>
       <span className="text-gray-400 text-xs">
-        ↑{fmt(slot.tokens_in)} ↓{fmt(slot.tokens_out)} tokens
+        ↑{fmt(slot.tokens_in)} ↓{fmt(slot.tokens_out)}
       </span>
       {slot.tool_calls > 0 && (
         <>
@@ -22,13 +24,17 @@ function Row({ label, slot }: { label: string; slot: UsageStats["quick"] }) {
         </>
       )}
       <span className="ml-auto text-gray-400 font-mono text-xs">
-        {slot.cost_cny > 0 ? `¥${slot.cost_cny.toFixed(4)}` : "-"}
+        {totalTokens > 0 ? fmt(totalTokens) : "-"}
       </span>
     </div>
   )
 }
 
 export default function UsageCard({ usage }: { usage: UsageStats }) {
+  const totalTokens = (
+    usage.quick.tokens_in + usage.quick.tokens_out +
+    usage.deep.tokens_in  + usage.deep.tokens_out
+  )
   return (
     <div className="border-t border-border mt-4 pt-4 px-6 pb-4">
       <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">本次用量</div>
@@ -38,9 +44,7 @@ export default function UsageCard({ usage }: { usage: UsageStats }) {
         <div className="border-t border-border pt-2 flex justify-between text-sm">
           <span className="text-gray-500">合计</span>
           <span className="text-white font-semibold">
-            {usage.total_cost_cny > 0
-              ? `¥${usage.total_cost_cny.toFixed(4)}`
-              : "未知（模型不在价格表中）"}
+            {totalTokens > 0 ? fmt(totalTokens) : "-"}
           </span>
         </div>
         <div className="text-xs text-gray-600">

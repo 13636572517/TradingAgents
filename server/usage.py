@@ -5,6 +5,9 @@ A single CombinedUsageTracker is injected into TradingAgentsGraph.callbacks.
 LangChain passes it to both the quick and deep LLM clients, so the tracker
 identifies which model fired each event via invocation_params and routes to
 the appropriate per-role sub-tracker.
+
+All cost estimation has been removed — we now track raw token counts only.
+Users can check their actual bills on the provider's dashboard.
 """
 from __future__ import annotations
 
@@ -14,49 +17,6 @@ from typing import Any, Dict
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import LLMResult
-
-# ── Pricing table (CNY per 1 000 tokens) ──────────────────────────────────────
-_PRICE_CNY: Dict[str, tuple] = {
-    # Qwen (DashScope)
-    "qwen3.6-flash":             (0.00035, 0.001),
-    "qwen3.5-flash":             (0.00035, 0.001),
-    "qwen3.6-plus":              (0.004,   0.016),
-    "qwen3.5-plus":              (0.004,   0.012),
-    "qwen3-max":                 (0.024,   0.096),
-    "qwen3-235b-a22b":           (0.004,   0.016),
-    "qwen3.5-235b-a22b":         (0.004,   0.016),
-    "qwen3.5-122b-a10b":         (0.002,   0.008),
-    "qwen3-30b-a3b":             (0.0007,  0.003),
-    "qwen3-32b":                 (0.002,   0.008),
-    # OpenAI (7.2 CNY/USD)
-    "gpt-4o-mini":               (0.0011,  0.0043),
-    "gpt-4o":                    (0.018,   0.072),
-    "gpt-4.1":                   (0.018,   0.072),
-    "gpt-4.1-mini":              (0.0014,  0.0057),
-    # Anthropic (7.2 CNY/USD)
-    "claude-haiku-4-5-20251001": (0.0018,  0.009),
-    "claude-sonnet-4-6":         (0.022,   0.108),
-    "claude-opus-4-7":           (0.108,   0.540),
-    # DeepSeek
-    "deepseek-chat":             (0.002,   0.008),
-    "deepseek-reasoner":         (0.004,   0.016),
-}
-
-
-def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
-    key = model.lower()
-    # Exact match first
-    price = _PRICE_CNY.get(key)
-    # Fallback: strip date/version suffixes (e.g. "qwen3.5-plus-2026-04-20" → "qwen3.5-plus")
-    if not price:
-        for table_key in sorted(_PRICE_CNY, key=len, reverse=True):
-            if key.startswith(table_key):
-                price = _PRICE_CNY[table_key]
-                break
-    if not price:
-        return 0.0
-    p_in, p_out = price
-    return round(tokens_in / 1000 * p_in + tokens_out / 1000 * p_out, 4)
 
 
 def _extract_model_name(kwargs: dict) -> str | None:
@@ -78,14 +38,12 @@ class _Slot:
         self.tool_calls = 0
 
     def to_dict(self) -> dict:
-        cost = estimate_cost(self.model_name, self.tokens_in, self.tokens_out)
         return {
             "model":      self.model_name,
             "calls":      self.calls,
             "tokens_in":  self.tokens_in,
             "tokens_out": self.tokens_out,
             "tool_calls": self.tool_calls,
-            "cost_cny":   cost,
         }
 
 
@@ -176,9 +134,7 @@ class CombinedUsageTracker(BaseCallbackHandler):
         with self._lock:
             q = self.quick.to_dict()
             d = self.deep.to_dict()
-        total_cost = round(q["cost_cny"] + d["cost_cny"], 4)
         return {
-            "quick":          q,
-            "deep":           d,
-            "total_cost_cny": total_cost,
+            "quick": q,
+            "deep":  d,
         }

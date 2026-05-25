@@ -19,5 +19,5 @@ sleep 8
 docker compose -f docker-compose.prod.yml ps
 
 echo ""
-echo "==> 部署完成！访问 http://47.103.133.232:8080"
+echo "==> 部署完成！访问 https://trading.yusuan.xyz"
 echo "==> 查看日志: docker compose -f docker-compose.prod.yml logs -f server"

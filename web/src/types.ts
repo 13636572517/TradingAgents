@@ -83,13 +83,11 @@ export interface UsageSlot {
   tokens_in: number
   tokens_out: number
   tool_calls: number
-  cost_cny: number
 }
 
 export interface UsageStats {
   quick: UsageSlot
   deep: UsageSlot
-  total_cost_cny: number
 }
 
 export interface AggregateStats {
@@ -97,8 +95,8 @@ export interface AggregateStats {
   completed_analyses: number
   quick: UsageSlot
   deep: UsageSlot
-  total_cost_cny: number
-  by_date: Record<string, { cost_cny: number; analyses: number }>
+  total_tokens: number
+  by_date: Record<string, { tokens: number; analyses: number }>
 }
 
 export interface TestResult {
