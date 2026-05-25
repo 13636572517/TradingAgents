@@ -221,7 +221,7 @@ function AnalysisWorkspace({
                     : "pending"
 
                   const isRerunning = rerunningStageName === item.stage
-                  const canRerun = !isRunning && (hasContent || analysis.status === "failed" || analysis.status === "stopped")
+                  const canRerun = !isRunning && (hasContent || analysis.status === "failed" || analysis.status === "stopped" || analysis.status === "complete")
                   return (
                     <div
                       key={item.key}
@@ -355,7 +355,7 @@ function AnalysisWorkspace({
             <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-500 text-sm">
               {!isRunning && (() => {
                 const activeItem = TREE.flatMap((g) => g.items).find((it) => it.key === activeKey)
-                const canRerunEmpty = activeItem && (analysis.status === "failed" || analysis.status === "stopped")
+                const canRerunEmpty = activeItem && (analysis.status === "failed" || analysis.status === "stopped" || analysis.status === "complete")
                 return canRerunEmpty ? (
                   <>
                     <span>此环节尚未完成</span>
