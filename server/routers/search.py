@@ -76,9 +76,26 @@ def _load_securities() -> list:
         logger.warning("Failed to load ETF list: %s", e)
 
     # ── HK stocks ─────────────────────────────────────────────────────────
-    # Note: AkShare HK endpoint may fail on some servers due to network restrictions.
-    # HK stock search is supported via manual ticker entry (e.g., 02513.HK).
-    # Future enhancement: integrate with Futu OpenD for HK stock list.
+    hk_before = len(items)
+    try:
+        # Load HK stocks from Futu OpenD (more reliable than akshare on servers)
+        from tradingagents.dataflows.futu_data import get_futu_stock_list
+        hk_stocks = get_futu_stock_list(market="HK")
+        if hk_stocks:
+            for code, name in hk_stocks:
+                code = str(code).strip()
+                name = str(name).strip()
+                if code and len(code) >= 4:
+                    # Keep 4-5 digit code (e.g., 02513)
+                    code = code[:5].zfill(4)
+                    _add(code, name, suffix=".HK", market="港股")
+            logger.info("Loaded %d HK stocks from Futu (total %d)", len(items) - hk_before, len(items))
+        else:
+            logger.warning("Futu returned empty HK stock list")
+    except ImportError:
+        logger.debug("Futu not available for HK stock list")
+    except Exception as e:
+        logger.warning("Failed to load HK stock list from Futu: %s", e)
 
     return items
 
@@ -90,7 +107,9 @@ def search_stocks(
 ):
     """Search stocks + ETFs by code or name, return up to `limit` matches.
     
-    For HK stocks: if query looks like a HK code (4-5 digits), suggest .HK ticker.
+    Data sources:
+      - A-share stocks + ETFs: AkShare
+      - HK stocks: Futu OpenD (loaded once, cached)
     """
     q = q.strip()
     if not q:
@@ -98,18 +117,6 @@ def search_stocks(
 
     securities = _load_securities()
     q_lower = q.lower()
-
-    # Check if query looks like a HK stock code (4-5 digits)
-    results = []
-    if q.isdigit() and 4 <= len(q) <= 5:
-        # Suggest HK stock format
-        hk_code = q.zfill(4)
-        results.append({
-            "ticker": f"{hk_code}.HK",
-            "name": f"港股 {hk_code}",
-            "code": hk_code,
-            "market": "港股 (手动输入)",
-        })
 
     exact, starts_code, starts_name, contains_name = [], [], [], []
 
@@ -127,7 +134,7 @@ def search_stocks(
         elif q_lower in name_lower:
             contains_name.append(s)
 
-    seen_tickers = set(s["ticker"] for s in results)
+    seen_tickers, results = set(), []
     for group in (exact, starts_code, starts_name, contains_name):
         for s in group:
             if s["ticker"] not in seen_tickers:

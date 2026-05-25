@@ -244,3 +244,49 @@ def test_futu_connection() -> dict:
         return {"connected": False, "error": str(df)}
     except Exception as e:
         return {"connected": False, "error": str(e)}
+
+
+# ── Stock list ─────────────────────────────────────────────────────────────────
+
+def get_futu_stock_list(market: str = "HK") -> list:
+    """Get list of stocks for a specific market via Futu OpenD.
+    
+    Args:
+        market: Market code — "HK" (港股), "US" (美股), "SH" (沪市), "SZ" (深市)
+    
+    Returns:
+        List of tuples: [(code, name), ...]
+    """
+    import futu as ft
+    ctx = _get_quote_ctx()
+    try:
+        if market == "HK":
+            ret, df = ctx.get_stock_basicinfo(market=ft.Market.HK)
+        elif market == "US":
+            ret, df = ctx.get_stock_basicinfo(market=ft.Market.US)
+        elif market == "SH":
+            ret, df = ctx.get_stock_basicinfo(market=ft.Market.SH)
+        elif market == "SZ":
+            ret, df = ctx.get_stock_basicinfo(market=ft.Market.SZ)
+        else:
+            logger.warning(f"Unknown market: {market}")
+            return []
+        
+        if ret != ft.RET_OK or df is None or df.empty:
+            logger.warning(f"Futu get_stock_basicinfo failed for {market}")
+            return []
+        
+        results = []
+        for _, row in df.iterrows():
+            code = str(row.get("code", ""))
+            name = str(row.get("name", ""))
+            if code and name:
+                results.append((code, name))
+        
+        logger.info(f"Loaded {len(results)} stocks for market {market}")
+        return results
+    except Exception as e:
+        logger.warning(f"Failed to load {market} stock list from Futu: {e}")
+        return []
+    finally:
+        ctx.close()
