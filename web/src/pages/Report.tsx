@@ -471,8 +471,15 @@ export default function Report() {
       analysisId,
       (event) => {
         setProgress(event)
-        if ((event as any).refresh) {
-          api.getAnalysis(analysisId).then(setAnalysis)
+        // Always refresh analysis data when refresh flag is set
+        if (event.refresh) {
+          api.getAnalysis(analysisId).then((a) => {
+            setAnalysis(a)
+            // Update decision if present
+            if (event.decision) {
+              setAnalysis((prev) => prev ? { ...prev, decision: event.decision as any } : prev)
+            }
+          })
         }
       },
       () => api.getAnalysis(analysisId).then((a) => {

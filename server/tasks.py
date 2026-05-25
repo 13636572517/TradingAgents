@@ -216,6 +216,12 @@ def run_analysis(self, analysis_id: str):
                 result_cache.update(new_fields)
                 record.result = dict(result_cache)
                 db.commit()
+                
+                # Update stage_detail to trigger SSE event on new report
+                done = [lbl for fld, lbl in _ANALYST_FIELDS.items() if final_state.get(fld)]
+                if done:
+                    detail = f"分析师进度 {len(done)}/4：已完成 {', '.join(done)}"
+                    _update_progress(db, record, detail=detail)
 
             # Update stage + detail
             new_stage, detail = _detect_progress(final_state, record)

@@ -116,14 +116,14 @@ export const api = {
 
 export function openProgressStream(
   analysisId: string,
-  onEvent: (event: ProgressEvent) => void,
+  onEvent: (event: ProgressEvent & { refresh?: boolean; decision?: string }) => void,
   onDone: () => void
 ): EventSource {
   const token = localStorage.getItem("auth_token")
   const url = `/api/analyses/${analysisId}/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`
   const es = new EventSource(url)
   es.onmessage = (e) => {
-    const data = JSON.parse(e.data) as ProgressEvent
+    const data = JSON.parse(e.data) as ProgressEvent & { refresh?: boolean; decision?: string }
     onEvent(data)
     if (data.status === "complete" || data.status === "failed" || data.error) {
       es.close()
