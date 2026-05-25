@@ -76,20 +76,9 @@ def _load_securities() -> list:
         logger.warning("Failed to load ETF list: %s", e)
 
     # ── HK stocks ─────────────────────────────────────────────────────────
-    hk_before = len(items)
-    try:
-        df = ak.stock_hk_spot_em()
-        if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                code = str(row.get("代码", "")).strip()
-                name = str(row.get("名称", "")).strip()
-                if code and code.isdigit():
-                    # Pad HK codes to 4 digits (e.g., 2513 → 02513)
-                    code = code.zfill(4)
-                    _add(code, name, suffix=".HK", market="港股")
-            logger.info("Loaded %d HK stocks (total %d)", len(items) - hk_before, len(items))
-    except Exception as e:
-        logger.warning("Failed to load HK stock list: %s", e)
+    # Note: AkShare HK endpoint may fail on some servers due to network restrictions.
+    # HK stock search is supported via manual ticker entry (e.g., 02513.HK).
+    # Future enhancement: integrate with Futu OpenD for HK stock list.
 
     return items
 
@@ -99,13 +88,28 @@ def search_stocks(
     q: str = Query("", min_length=1, max_length=20),
     limit: int = Query(10, ge=1, le=30),
 ):
-    """Search stocks + ETFs by code or name, return up to `limit` matches."""
+    """Search stocks + ETFs by code or name, return up to `limit` matches.
+    
+    For HK stocks: if query looks like a HK code (4-5 digits), suggest .HK ticker.
+    """
     q = q.strip()
     if not q:
         return []
 
     securities = _load_securities()
     q_lower = q.lower()
+
+    # Check if query looks like a HK stock code (4-5 digits)
+    results = []
+    if q.isdigit() and 4 <= len(q) <= 5:
+        # Suggest HK stock format
+        hk_code = q.zfill(4)
+        results.append({
+            "ticker": f"{hk_code}.HK",
+            "name": f"港股 {hk_code}",
+            "code": hk_code,
+            "market": "港股 (手动输入)",
+        })
 
     exact, starts_code, starts_name, contains_name = [], [], [], []
 
@@ -123,7 +127,7 @@ def search_stocks(
         elif q_lower in name_lower:
             contains_name.append(s)
 
-    seen_tickers, results = set(), []
+    seen_tickers = set(s["ticker"] for s in results)
     for group in (exact, starts_code, starts_name, contains_name):
         for s in group:
             if s["ticker"] not in seen_tickers:
