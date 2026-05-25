@@ -77,7 +77,7 @@ function AnalysisCard({
             )}
           </div>
           {analysis.ticker_name && (
-            <div className="text-xs text-gray-400 mt-0.5">{analysis.ticker_name}</div>
+            <div className="text-xs text-gray-400 mt-0.5 truncate max-w-[200px]">{analysis.ticker_name}</div>
           )}
         </div>
         {analysis.decision ? (

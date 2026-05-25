@@ -82,8 +82,18 @@ def create_analysis(
     _ANALYST_ALIAS = {"sentiment": "social"}
     normalized_analysts = [_ANALYST_ALIAS.get(a, a) for a in payload.analysts]
 
+    # Look up stock name for display purposes
+    ticker_name = None
+    try:
+        from tradingagents.dataflows.stock_name_lookup import get_stock_name
+        ticker_name = get_stock_name(payload.ticker)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("Stock name lookup failed for %s: %s", payload.ticker, e)
+
     record = Analysis(
         ticker=payload.ticker.upper(),
+        ticker_name=ticker_name,
         trade_date=payload.trade_date,
         analysts=normalized_analysts,
         depth=payload.depth,
