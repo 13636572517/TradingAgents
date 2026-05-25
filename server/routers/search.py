@@ -83,9 +83,13 @@ def _load_securities() -> list:
         hk_stocks = get_futu_stock_list(market="HK")
         if hk_stocks:
             for code, name in hk_stocks:
+                # Futu returns format like "HK.02513" or "02513"
                 code = str(code).strip()
                 name = str(name).strip()
-                if code and len(code) >= 4:
+                # Extract numeric part if in "HK.XXXXX" format
+                if '.' in code:
+                    code = code.split('.')[1]
+                if code and code.isdigit() and len(code) >= 4:
                     # Keep 4-5 digit code (e.g., 02513)
                     code = code[:5].zfill(4)
                     _add(code, name, suffix=".HK", market="港股")
