@@ -297,6 +297,7 @@ export default function StrategyDashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [backfilling, setBackfilling] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null)
+  const [bulkExtracting, setBulkExtracting] = useState(false)
   const [filter, setFilter] = useState<"all" | "active" | "BUY" | "SELL" | "HOLD">("active")
   const [reExtractingId, setReExtractingId] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -329,6 +330,20 @@ export default function StrategyDashboard() {
       setBackfillMsg("回填失败")
     } finally {
       setBackfilling(false)
+    }
+  }
+
+  const handleBulkReExtract = async () => {
+    setBulkExtracting(true)
+    setBackfillMsg(null)
+    try {
+      const r = await api.reExtractAllStrategies()
+      setBackfillMsg(`AI批量重提完成：更新 ${r.updated}，跳过 ${r.skipped}，失败 ${r.failed}`)
+      await load()
+    } catch {
+      setBackfillMsg("AI批量重提失败")
+    } finally {
+      setBulkExtracting(false)
     }
   }
 
@@ -397,14 +412,22 @@ export default function StrategyDashboard() {
           <h1 className="text-2xl font-bold text-white">策略看板</h1>
           <p className="text-gray-500 text-sm mt-1">从历史分析报告提取交易策略，结合实时价格监控止盈止损</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={handleBackfill}
-            disabled={backfilling}
+            disabled={backfilling || bulkExtracting}
             className="text-xs px-3 py-1.5 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-40 transition-colors"
-            title="提取所有历史分析报告的策略"
+            title="为尚未提取策略的历史分析新增记录"
           >
             {backfilling ? "回填中…" : "↺ 回填历史"}
+          </button>
+          <button
+            onClick={handleBulkReExtract}
+            disabled={bulkExtracting || backfilling}
+            className="text-xs px-3 py-1.5 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-40 transition-colors"
+            title="对所有已有策略记录重新用AI提取止损/目标价"
+          >
+            {bulkExtracting ? "AI提取中…" : "🤖 AI批量重提"}
           </button>
           <button
             onClick={handleRefresh}

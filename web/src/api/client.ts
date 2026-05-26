@@ -111,6 +111,7 @@ export const api = {
   backfillStrategies: () => http.post<{ created: number; skipped: number; failed: number }>("/strategies/backfill").then((r) => r.data),
   closeStrategy: (id: string) => http.patch<Strategy>(`/strategies/${id}`, { status: "closed" }).then((r) => r.data),
   reExtractStrategy: (id: string) => http.post<Strategy>(`/strategies/${id}/re-extract`).then((r) => r.data),
+  reExtractAllStrategies: () => http.post<{ updated: number; skipped: number; failed: number }>("/strategies/re-extract-all").then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

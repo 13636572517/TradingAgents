@@ -144,6 +144,43 @@ def backfill(db: Session = Depends(get_db)):
     return {"created": created, "skipped": skipped, "failed": failed}
 
 
+@router.post("/re-extract-all", response_model=dict)
+def re_extract_all(db: Session = Depends(get_db)):
+    """
+    AI re-extract fields for ALL existing strategy records (regardless of existing data).
+    Useful after upgrading from regex-only to AI extraction.
+    Returns counts of updated / skipped / failed.
+    """
+    from server.strategy_extractor import build_strategy_from_analysis
+    from server.models import AppSettings
+
+    settings = db.get(AppSettings, 1)
+    rows = db.query(AnalysisStrategy).all()
+
+    updated = skipped = failed = 0
+    for row in rows:
+        record = db.get(Analysis, row.analysis_id)
+        if not record:
+            skipped += 1
+            continue
+        try:
+            data = build_strategy_from_analysis(record, settings=settings)
+            if not data:
+                skipped += 1
+                continue
+            for k, v in data.items():
+                if k not in ("analysis_id", "status"):
+                    setattr(row, k, v)
+            db.commit()
+            updated += 1
+        except Exception as e:
+            logger.error("re_extract_all: strategy %s → %s", row.id, e)
+            db.rollback()
+            failed += 1
+
+    return {"updated": updated, "skipped": skipped, "failed": failed}
+
+
 @router.post("/{strategy_id}/re-extract", response_model=StrategyOut)
 def re_extract(
     strategy_id: str,
