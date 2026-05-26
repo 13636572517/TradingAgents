@@ -71,11 +71,22 @@ def _auto_expire(db: Session, row: AnalysisStrategy) -> None:
 
 @router.get("", response_model=List[StrategyOut])
 def list_strategies(db: Session = Depends(get_db)):
-    """Return all strategies, auto-expiring stale ones."""
-    rows = db.query(AnalysisStrategy).order_by(AnalysisStrategy.created_at.desc()).all()
+    """Return one strategy per ticker (the latest by trade_date then created_at),
+    auto-expiring stale ones."""
+    rows = db.query(AnalysisStrategy).order_by(
+        AnalysisStrategy.trade_date.desc(),
+        AnalysisStrategy.created_at.desc(),
+    ).all()
     for row in rows:
         _auto_expire(db, row)
-    return rows
+    # Deduplicate: keep only the first (= most recent) record per ticker
+    seen: set[str] = set()
+    unique = []
+    for row in rows:
+        if row.ticker not in seen:
+            seen.add(row.ticker)
+            unique.append(row)
+    return unique
 
 
 @router.post("/refresh", response_model=List[StrategyOut])

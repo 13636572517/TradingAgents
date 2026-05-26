@@ -198,11 +198,32 @@ class PortfolioDecision(BaseModel):
     )
     price_target: Optional[float] = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        description=(
+            "Target / take-profit price in the instrument's quote currency. "
+            "Must be set whenever the rating is Buy, Overweight, Underweight, or Sell. "
+            "Derive it from technical resistance/support levels, valuation multiples, "
+            "or risk-reward analysis discussed in the debate."
+        ),
+    )
+    stop_loss: Optional[float] = Field(
+        default=None,
+        description=(
+            "Stop-loss price in the instrument's quote currency. "
+            "Must be set whenever the rating is Buy, Overweight, Underweight, or Sell. "
+            "Set it at a technically meaningful level (e.g. key support, recent low, "
+            "or a fixed percentage below entry) discussed in the risk debate."
+        ),
+    )
+    position_size: Optional[str] = Field(
+        default=None,
+        description=(
+            "Recommended position size as a percentage of portfolio, e.g. '20-30%'. "
+            "Base it on conviction level and risk budget discussed in the debate."
+        ),
     )
     time_horizon: Optional[str] = Field(
         default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+        description="Recommended holding period, e.g. '1-3 months'. Required for all ratings.",
     )
 
 
@@ -223,6 +244,10 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
+    if decision.stop_loss is not None:
+        parts.extend(["", f"**Stop Loss**: {decision.stop_loss}"])
+    if decision.position_size:
+        parts.extend(["", f"**Position Size**: {decision.position_size}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     return "\n".join(parts)

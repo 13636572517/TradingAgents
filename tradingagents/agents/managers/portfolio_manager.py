@@ -52,6 +52,12 @@ def create_portfolio_manager(llm):
 - **Underweight**: Reduce exposure, take partial profits
 - **Sell**: Exit position or avoid entry
 
+**Required outputs** (mandatory for every non-Hold rating):
+- **Price Target**: Specific price level derived from technical resistance, valuation, or risk-reward analysis — must be a concrete number, not a range
+- **Stop Loss**: Specific price level at a technically meaningful level (key support, recent low, or fixed % below entry) — must be a concrete number
+- **Position Size**: Recommended allocation as % of portfolio (e.g. "20-30%")
+- **Time Horizon**: Expected holding period (e.g. "1-3 months")
+
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
@@ -61,7 +67,7 @@ def create_portfolio_manager(llm):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{get_language_instruction()}"""
+Be decisive and ground every conclusion in specific evidence from the analysts. Always provide explicit price target and stop-loss levels — vague language is not acceptable.{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,
