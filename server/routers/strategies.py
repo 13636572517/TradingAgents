@@ -28,12 +28,17 @@ class StrategyOut(BaseModel):
     direction: Optional[str]
     entry_price: Optional[float]
     stop_loss: Optional[float]
+    stop_loss_basis: Optional[str]
     target_price: Optional[float]
+    target_price_basis: Optional[str]
     position_size: Optional[str]
     time_horizon: Optional[str]
     current_price: Optional[float]
     price_updated_at: Optional[datetime]
     status: str
+    extraction_method: Optional[str]
+    confidence: Optional[str]
+    extraction_note: Optional[str]
     created_at: datetime
     closed_at: Optional[datetime]
 
@@ -109,6 +114,9 @@ def backfill(db: Session = Depends(get_db)):
 
     existing_ids = {s.analysis_id for s in db.query(AnalysisStrategy.analysis_id).all()}
 
+    from server.models import AppSettings
+    settings = db.get(AppSettings, 1)
+
     analyses = db.query(Analysis).filter(
         Analysis.status == "complete",
         Analysis.decision.isnot(None),
@@ -120,7 +128,7 @@ def backfill(db: Session = Depends(get_db)):
             skipped += 1
             continue
         try:
-            data = build_strategy_from_analysis(rec)
+            data = build_strategy_from_analysis(rec, settings=settings)
             if not data:
                 skipped += 1
                 continue
@@ -134,6 +142,42 @@ def backfill(db: Session = Depends(get_db)):
             failed += 1
 
     return {"created": created, "skipped": skipped, "failed": failed}
+
+
+@router.post("/{strategy_id}/re-extract", response_model=StrategyOut)
+def re_extract(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+):
+    """Re-run AI extraction for a single strategy record."""
+    from server.strategy_extractor import build_strategy_from_analysis
+    from server.models import AppSettings
+
+    row = db.get(AnalysisStrategy, strategy_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    record = db.get(Analysis, row.analysis_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    settings = db.get(AppSettings, 1)
+    try:
+        data = build_strategy_from_analysis(record, settings=settings)
+        if not data:
+            raise HTTPException(status_code=422, detail="No decision text found in analysis")
+        for k, v in data.items():
+            if k not in ("analysis_id", "status"):
+                setattr(row, k, v)
+        db.commit()
+        db.refresh(row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return row
 
 
 @router.patch("/{strategy_id}", response_model=StrategyOut)

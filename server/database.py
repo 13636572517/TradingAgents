@@ -32,6 +32,11 @@ def init_db():
     _migrate_add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0")
     _migrate_add_column("analyses", "owner_id", "INT NULL")
     _migrate_add_column("app_settings", "max_api_calls", "INT NOT NULL DEFAULT 60")
+    _migrate_add_column("analysis_strategies", "extraction_method",  "VARCHAR(10) DEFAULT 'regex'")
+    _migrate_add_column("analysis_strategies", "confidence",         "VARCHAR(10)")
+    _migrate_add_column("analysis_strategies", "stop_loss_basis",    "VARCHAR(50)")
+    _migrate_add_column("analysis_strategies", "target_price_basis", "VARCHAR(50)")
+    _migrate_add_column("analysis_strategies", "extraction_note",    "TEXT")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:

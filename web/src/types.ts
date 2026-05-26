@@ -163,6 +163,11 @@ export interface Strategy {
   current_price: number | null
   price_updated_at: string | null
   status: "active" | "expired" | "closed"
+  extraction_method: "regex" | "ai" | null
+  confidence: "high" | "medium" | "low" | null
+  stop_loss_basis: string | null
+  target_price_basis: string | null
+  extraction_note: string | null
   created_at: string
   closed_at: string | null
 }

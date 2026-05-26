@@ -47,12 +47,15 @@ def _normalize_analysts(analysts: list) -> list:
 
 
 def _extract_strategy(db, record: Analysis) -> None:
-    """Build / upsert an AnalysisStrategy record after an analysis completes."""
+    """Build / upsert an AnalysisStrategy record after an analysis completes.
+    Uses regex first, then refines with AI (using current AppSettings)."""
     try:
         import uuid as _uuid
         from server.strategy_extractor import build_strategy_from_analysis
+        from server.models import AppSettings
+        settings = db.get(AppSettings, 1)
         existing = db.query(AnalysisStrategy).filter_by(analysis_id=record.id).first()
-        data = build_strategy_from_analysis(record)
+        data = build_strategy_from_analysis(record, settings=settings)
         if not data:
             return
         if existing:

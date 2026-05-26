@@ -123,12 +123,30 @@ function PriceBar({ entry, current, stop, target, dir }: {
   )
 }
 
+// ── Confidence badge ──────────────────────────────────────────────────────────
+
+function ConfidenceBadge({ confidence, method }: { confidence: string | null; method: string | null }) {
+  if (method === "ai") {
+    const map: Record<string, string> = {
+      high:   "text-buy bg-buy/10 border-buy/30",
+      medium: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+      low:    "text-orange-400 bg-orange-400/10 border-orange-400/30",
+    }
+    const cls = confidence ? (map[confidence] ?? map.medium) : map.medium
+    const label = confidence === "high" ? "AI高置信" : confidence === "low" ? "AI低置信" : "AI提取"
+    return <span className={`text-[9px] px-1 py-0.5 rounded border ${cls}`}>{label}</span>
+  }
+  return <span className="text-[9px] px-1 py-0.5 rounded border text-gray-600 border-gray-700">正则</span>
+}
+
 // ── Strategy Card ─────────────────────────────────────────────────────────────
 
-function StrategyCard({ s, onClose, onClick }: {
+function StrategyCard({ s, onClose, onClick, onReExtract, reExtracting }: {
   s: Strategy
   onClose: () => void
   onClick: () => void
+  onReExtract: () => void
+  reExtracting: boolean
 }) {
   const dir = dirLabel(s.direction)
   const sts = statusLabel(s.status)
@@ -156,6 +174,7 @@ function StrategyCard({ s, onClose, onClick }: {
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <ConfidenceBadge confidence={s.confidence} method={s.extraction_method} />
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${dir.cls}`}>{dir.text}</span>
           <span className={`text-[10px] ${sts.cls}`}>{sts.text}</span>
         </div>
@@ -194,6 +213,9 @@ function StrategyCard({ s, onClose, onClick }: {
         <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5">
           <div className="text-gray-500 mb-0.5">止损价</div>
           <div className="text-red-400 font-mono">{fmt(s.stop_loss, 3)}</div>
+          {s.stop_loss_basis && (
+            <div className="text-gray-600 text-[10px]">{s.stop_loss_basis}</div>
+          )}
           {s.stop_loss != null && s.current_price != null && (
             <div className="text-gray-600 text-[10px] mt-0.5">
               距止损 {pct(s.current_price, s.stop_loss)}
@@ -203,6 +225,9 @@ function StrategyCard({ s, onClose, onClick }: {
         <div className="bg-buy/5 border border-buy/20 rounded px-2 py-1.5">
           <div className="text-gray-500 mb-0.5">目标价</div>
           <div className="text-buy font-mono">{fmt(s.target_price, 3)}</div>
+          {s.target_price_basis && (
+            <div className="text-gray-600 text-[10px]">{s.target_price_basis}</div>
+          )}
           {s.target_price != null && s.current_price != null && (
             <div className="text-gray-600 text-[10px] mt-0.5">
               距目标 {pct(s.target_price, s.current_price)}
@@ -210,6 +235,13 @@ function StrategyCard({ s, onClose, onClick }: {
           )}
         </div>
       </div>
+
+      {/* AI extraction note */}
+      {s.extraction_note && (
+        <div className="text-[10px] text-gray-500 bg-white/3 rounded px-2 py-1.5 leading-relaxed">
+          💡 {s.extraction_note}
+        </div>
+      )}
 
       {/* Alert banners */}
       {(slAlert || tgtAlert) && (
@@ -221,20 +253,30 @@ function StrategyCard({ s, onClose, onClick }: {
 
       {/* Footer */}
       <div className="flex items-center justify-between text-[10px] text-gray-600 pt-1 border-t border-border/50">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <span>分析日 {s.trade_date}</span>
           {s.position_size  && <span>仓位 {s.position_size}</span>}
           {s.time_horizon   && <span>{s.time_horizon}</span>}
         </div>
-        {s.status === "active" && (
+        <div className="flex gap-2">
           <button
-            onClick={(e) => { e.stopPropagation(); onClose() }}
-            className="text-gray-600 hover:text-red-400 transition-colors px-1"
-            title="关闭策略"
+            onClick={(e) => { e.stopPropagation(); onReExtract() }}
+            disabled={reExtracting}
+            className="text-gray-600 hover:text-accent transition-colors disabled:opacity-40"
+            title="用AI重新提取止损/目标价"
           >
-            关闭
+            {reExtracting ? "提取中…" : "AI重提"}
           </button>
-        )}
+          {s.status === "active" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onClose() }}
+              className="text-gray-600 hover:text-red-400 transition-colors"
+              title="关闭策略"
+            >
+              关闭
+            </button>
+          )}
+        </div>
       </div>
 
       {s.price_updated_at && (
@@ -256,6 +298,7 @@ export default function StrategyDashboard() {
   const [backfilling, setBackfilling] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null)
   const [filter, setFilter] = useState<"all" | "active" | "BUY" | "SELL" | "HOLD">("active")
+  const [reExtractingId, setReExtractingId] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
@@ -294,6 +337,18 @@ export default function StrategyDashboard() {
       const updated = await api.closeStrategy(id)
       setStrategies((prev) => prev.map((s) => s.id === id ? updated : s))
     } catch { /* silent */ }
+  }
+
+  const handleReExtract = async (id: string) => {
+    setReExtractingId(id)
+    try {
+      const updated = await api.reExtractStrategy(id)
+      setStrategies((prev) => prev.map((s) => s.id === id ? updated : s))
+    } catch (e: any) {
+      alert(e?.response?.data?.detail ?? "AI重新提取失败")
+    } finally {
+      setReExtractingId(null)
+    }
   }
 
   // Initial load + 5-min poll while page is visible
@@ -423,6 +478,8 @@ export default function StrategyDashboard() {
               s={s}
               onClose={() => handleClose(s.id)}
               onClick={() => navigate(`/report/${s.analysis_id}`)}
+              onReExtract={() => handleReExtract(s.id)}
+              reExtracting={reExtractingId === s.id}
             />
           ))}
         </div>
