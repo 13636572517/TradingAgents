@@ -3,7 +3,7 @@ import axios from "axios"
 import type {
   Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
   ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
-  AuthToken, AuthUser, AdminUser, ShareUser,
+  AuthToken, AuthUser, AdminUser, ShareUser, Strategy,
 } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
@@ -104,6 +104,12 @@ export const api = {
     http.delete(`/analyses/${id}/shares/${userId}`),
   searchUsers: (q: string) =>
     http.get<ShareUser[]>("/auth/users/search", { params: { q } }).then((r) => r.data),
+
+  // ── Strategies ──────────────────────────────────────────────────────────────
+  getStrategies: () => http.get<Strategy[]>("/strategies").then((r) => r.data),
+  refreshStrategyPrices: () => http.post<Strategy[]>("/strategies/refresh").then((r) => r.data),
+  backfillStrategies: () => http.post<{ created: number; skipped: number; failed: number }>("/strategies/backfill").then((r) => r.data),
+  closeStrategy: (id: string) => http.patch<Strategy>(`/strategies/${id}`, { status: "closed" }).then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

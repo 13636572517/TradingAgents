@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext"
 const NAV = [
   { to: "/new",      icon: "＋",  label: "新建分析" },
   { to: "/history",  icon: "📋",  label: "历史报告" },
+  { to: "/strategies", icon: "🎯",  label: "策略看板" },
   { to: "/stats",    icon: "📊",  label: "用量统计" },
   { to: "/settings", icon: "⚙️", label: "设置" },
 ]

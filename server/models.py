@@ -56,6 +56,28 @@ class AppSettings(Base):
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AnalysisStrategy(Base):
+    """One strategy record per completed analysis (extracted from final_trade_decision)."""
+    __tablename__ = "analysis_strategies"
+
+    id              = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    analysis_id     = Column(String(36), ForeignKey('analyses.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    ticker          = Column(String(20),  nullable=False, index=True)
+    ticker_name     = Column(String(100))
+    trade_date      = Column(String(10))               # YYYY-MM-DD
+    direction       = Column(String(10))               # BUY / HOLD / SELL
+    entry_price     = Column(Float)                    # closing price on trade_date
+    stop_loss       = Column(Float)
+    target_price    = Column(Float)
+    position_size   = Column(String(50))               # e.g. "20-30%"
+    time_horizon    = Column(String(100))              # e.g. "1-3个月"
+    current_price   = Column(Float)
+    price_updated_at = Column(DateTime)
+    status          = Column(String(20), default="active")  # active / expired / closed
+    created_at      = Column(DateTime,   default=datetime.utcnow)
+    closed_at       = Column(DateTime)
+
+
 class User(Base):
     """认证用户。密码以 bcrypt 哈希存储，不可逆。"""
     __tablename__ = "users"

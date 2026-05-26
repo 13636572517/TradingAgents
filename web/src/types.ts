@@ -148,6 +148,25 @@ export interface ShareUser {
   username: string
 }
 
+export interface Strategy {
+  id: string
+  analysis_id: string
+  ticker: string
+  ticker_name: string | null
+  trade_date: string
+  direction: "BUY" | "HOLD" | "SELL" | null
+  entry_price: number | null
+  stop_loss: number | null
+  target_price: number | null
+  position_size: string | null
+  time_horizon: string | null
+  current_price: number | null
+  price_updated_at: string | null
+  status: "active" | "expired" | "closed"
+  created_at: string
+  closed_at: string | null
+}
+
 export interface AdminUser {
   id: number
   username: string

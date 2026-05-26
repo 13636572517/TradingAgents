@@ -5,7 +5,7 @@ from datetime import datetime
 
 from server.celery_app import celery_app
 from server.database import SessionLocal
-from server.models import Analysis
+from server.models import Analysis, AnalysisStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,30 @@ _ANALYST_KEY_ALIAS: dict[str, str] = {"sentiment": "social"}
 def _normalize_analysts(analysts: list) -> list:
     """Translate any legacy/frontend analyst key aliases to graph-internal keys."""
     return [_ANALYST_KEY_ALIAS.get(a, a) for a in (analysts or [])]
+
+
+def _extract_strategy(db, record: Analysis) -> None:
+    """Build / upsert an AnalysisStrategy record after an analysis completes."""
+    try:
+        import uuid as _uuid
+        from server.strategy_extractor import build_strategy_from_analysis
+        existing = db.query(AnalysisStrategy).filter_by(analysis_id=record.id).first()
+        data = build_strategy_from_analysis(record)
+        if not data:
+            return
+        if existing:
+            for k, v in data.items():
+                if k != "analysis_id":
+                    setattr(existing, k, v)
+        else:
+            db.add(AnalysisStrategy(id=str(_uuid.uuid4()), **data))
+        db.commit()
+    except Exception as exc:
+        logger.warning("_extract_strategy failed for %s: %s", record.id, exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _update_progress(db, record: Analysis, stage: str = None, detail: str = None):
@@ -248,6 +272,7 @@ def run_analysis(self, analysis_id: str):
         record.completed_at = datetime.utcnow()
         record.seen = False
         db.commit()
+        _extract_strategy(db, record)
 
     except Exception as exc:
         logger.exception("run_analysis failed for %s", analysis_id)
@@ -435,6 +460,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
         record.completed_at = datetime.utcnow()
         record.seen = False
         db.commit()
+        _extract_strategy(db, record)
 
     except Exception as exc:
         logger.exception("rerun_stage failed for %s stage %s", analysis_id, stage)
