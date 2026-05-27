@@ -113,6 +113,22 @@ export const api = {
   reExtractStrategy: (id: string) => http.post<Strategy>(`/strategies/${id}/re-extract`).then((r) => r.data),
   reExtractAllStrategies: () => http.post<{ updated: number; skipped: number; failed: number }>("/strategies/re-extract-all").then((r) => r.data),
 
+  // ── Pricing ──────────────────────────────────────────────────────────────────
+  importPricingMd: (markdown: string, region = "cn") =>
+    http.post<{ imported: number; skipped: number; models: string[] }>(
+      "/pricing/import-md", { markdown, region }
+    ).then((r) => r.data),
+  listPricing: () =>
+    http.get<{ model_id: string; region: string; tiers: { max_k: number | null; input_price: number; output_price: number }[]; updated_at: string | null }[]>(
+      "/pricing"
+    ).then((r) => r.data),
+  deletePricing: (modelId: string) =>
+    http.delete(`/pricing/${encodeURIComponent(modelId)}`),
+  recalculateCosts: () =>
+    http.post<{ updated: number; skipped: number; total_cost_delta: number }>(
+      "/pricing/recalculate"
+    ).then((r) => r.data),
+
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),
   adminCreateUser: (payload: { username: string; password: string; is_admin: boolean }) =>

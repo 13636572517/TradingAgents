@@ -33,7 +33,8 @@ def _extract_model_name(kwargs: dict) -> str | None:
 # ── Per-role slot ──────────────────────────────────────────────────────────────
 
 class _Slot:
-    def __init__(self, model_name: str, role: str, input_cost_per_million: float = 0.0, output_cost_per_million: float = 0.0):
+    def __init__(self, model_name: str, role: str, input_cost_per_million: float = 0.0,
+                 output_cost_per_million: float = 0.0, pricing_tiers: list | None = None):
         self.model_name = model_name
         self.role = role
         self.calls = 0
@@ -42,9 +43,15 @@ class _Slot:
         self.tool_calls = 0
         self.input_cost_per_million = input_cost_per_million
         self.output_cost_per_million = output_cost_per_million
+        self.pricing_tiers = pricing_tiers  # tiered pricing overrides flat rates when provided
 
     def _calc_cost(self) -> float:
-        """Calculate cost in CNY based on token counts and configured prices."""
+        """Calculate cost in CNY. Uses tiered pricing if available, else flat rates."""
+        if self.pricing_tiers:
+            from server.pricing_utils import calc_cost_tiered
+            return calc_cost_tiered(
+                self.tokens_in, self.tokens_out, self.calls, self.pricing_tiers
+            )
         if self.input_cost_per_million <= 0 and self.output_cost_per_million <= 0:
             return 0.0
         cost = (
@@ -74,11 +81,15 @@ class CombinedUsageTracker(BaseCallbackHandler):
     """Single callback handler that routes events to quick/deep slots by model name."""
 
     def __init__(self, quick_model: str, deep_model: str, max_calls: int = 60,
-                 input_cost_per_million: float = 0.0, output_cost_per_million: float = 0.0) -> None:
+                 input_cost_per_million: float = 0.0, output_cost_per_million: float = 0.0,
+                 quick_pricing_tiers: list | None = None,
+                 deep_pricing_tiers: list | None = None) -> None:
         super().__init__()
         self._lock = threading.Lock()
-        self.quick = _Slot(quick_model, "quick", input_cost_per_million, output_cost_per_million)
-        self.deep  = _Slot(deep_model,  "deep",  input_cost_per_million, output_cost_per_million)
+        self.quick = _Slot(quick_model, "quick", input_cost_per_million, output_cost_per_million,
+                           quick_pricing_tiers)
+        self.deep  = _Slot(deep_model,  "deep",  input_cost_per_million, output_cost_per_million,
+                           deep_pricing_tiers)
         self.max_calls = max_calls
         # thread-local to remember which slot fired on_chat_model_start
         self._active: threading.local = threading.local()
