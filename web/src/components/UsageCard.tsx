@@ -54,23 +54,23 @@ export default function UsageCard({ usage }: { usage: UsageStats }) {
         </div>
         
         {/* Cost summary row */}
-        <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center justify-between text-xs pt-1">
           <span className="text-gray-500 w-20">费用估算</span>
           <div className="flex items-center gap-8">
-            <span className="font-mono w-20 text-right">
+            <span className="font-mono w-20 text-right text-gray-400">
               {usage.quick.cost_cny > 0 ? `¥${usage.quick.cost_cny.toFixed(4)}` : "-"}
             </span>
-            <span className="font-mono w-20 text-right">
+            <span className="font-mono w-20 text-right text-gray-400">
               {usage.deep.cost_cny > 0 ? `¥${usage.deep.cost_cny.toFixed(4)}` : "-"}
             </span>
           </div>
         </div>
-        
+
         {/* Total row */}
         <div className="border-t border-border pt-2 flex items-center justify-between text-sm">
           <span className="text-gray-500">合计</span>
           <div className="flex items-center gap-8">
-            <span className={`font-mono ${hasCost ? "text-accent font-semibold" : "text-gray-500"}`}>
+            <span className={`font-mono ${hasCost ? "text-accent font-bold" : "text-gray-500"}`}>
               {hasCost ? `¥${usage.total_cost_cny.toFixed(4)}` : "-"}
             </span>
             <span className="text-white font-semibold font-mono">

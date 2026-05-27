@@ -245,10 +245,17 @@ def recalc_usage_cost(usage: dict, db) -> dict:
     """Recalculate cost fields in a usage dict using current model pricing.
 
     Modifies a copy of the dict in-place and returns it.
-    Falls back to stored cost if no pricing found for the model.
+    Falls back to global AppSettings pricing if no tiered pricing found for the model.
     """
     import copy
+    from server.models import AppSettings
+
     usage = copy.deepcopy(usage)
+
+    # Load global pricing fallback from AppSettings
+    app_cfg = db.query(AppSettings).first()
+    global_input = (app_cfg.input_cost_per_million if app_cfg else 0.0) or 0.0
+    global_output = (app_cfg.output_cost_per_million if app_cfg else 0.0) or 0.0
 
     total = 0.0
     for slot_key in ("quick", "deep"):
@@ -257,16 +264,28 @@ def recalc_usage_cost(usage: dict, db) -> dict:
             continue
         model = slot.get("model", "")
         tiers = get_model_tiers(db, model) if model else None
+
         if tiers:
+            # Use tiered pricing
             cost = calc_cost_tiered(
                 slot.get("tokens_in", 0),
                 slot.get("tokens_out", 0),
                 slot.get("calls", 1),
                 tiers,
             )
-            slot["cost_cny"] = cost
-        # If no tiers found, keep existing cost_cny
-        total += slot.get("cost_cny", 0.0)
+        elif global_input > 0 or global_output > 0:
+            # Fallback to global flat-rate pricing
+            cost = (
+                slot.get("tokens_in", 0) / 1_000_000 * global_input +
+                slot.get("tokens_out", 0) / 1_000_000 * global_output
+            )
+            cost = round(cost, 4)
+        else:
+            # No pricing available — keep existing or set to 0
+            cost = slot.get("cost_cny", 0.0)
+
+        slot["cost_cny"] = cost
+        total += cost
 
     usage["total_cost_cny"] = round(total, 4)
     return usage
