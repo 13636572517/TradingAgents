@@ -287,23 +287,29 @@ function AnalysisWorkspace({
               <div className="space-y-1.5 text-xs">
                 {(["quick", "deep"] as const).map((role) => {
                   const s = analysis.usage![role]
-                  const total = s.tokens_in + s.tokens_out
+                  const totalTok = s.tokens_in + s.tokens_out
                   return (
-                    <div key={role} className="flex items-center justify-between text-gray-400">
-                      <span className="w-24">{role === "quick" ? "快速" : "深度"} {s.calls}次</span>
-                      <span className="font-mono w-24 text-right">
-                        {total > 0 ? `${total.toLocaleString()}` : "-"}
-                      </span>
+                    <div key={role} className="space-y-0.5">
+                      <div className="flex items-center justify-between text-gray-400">
+                        <span className="w-20 shrink-0">{role === "quick" ? "快速模型" : "深度模型"}</span>
+                        <span className="font-mono text-right">{s.calls}次 / {totalTok > 0 ? totalTok.toLocaleString() : "-"} tok</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 text-xs truncate max-w-[6rem]">{s.model}</span>
+                        <span className={`font-mono text-xs ${s.cost_cny > 0 ? "text-accent" : "text-gray-600"}`}>
+                          {s.cost_cny > 0 ? `¥${s.cost_cny.toFixed(4)}` : "-"}
+                        </span>
+                      </div>
                     </div>
                   )
                 })}
                 <div className="flex items-center justify-between text-white border-t border-border pt-2">
                   <span>合计</span>
-                  <div className="flex items-center gap-8">
-                    <span className={`font-mono ${analysis.usage.total_cost_cny > 0 ? "text-accent" : "text-gray-500"}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-mono ${analysis.usage.total_cost_cny > 0 ? "text-accent font-bold" : "text-gray-500"}`}>
                       {analysis.usage.total_cost_cny > 0 ? `¥${analysis.usage.total_cost_cny.toFixed(4)}` : "-"}
                     </span>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold text-gray-300">
                       {(() => {
                         const total = (
                           analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
