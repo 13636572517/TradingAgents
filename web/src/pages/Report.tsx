@@ -281,48 +281,85 @@ function AnalysisWorkspace({
           })}
 
           {/* Usage card (shown when complete) */}
-          {!isRunning && analysis.usage && (
-            <div className="border-t border-border pt-3 px-3 pb-2">
-              <div className="text-xs text-gray-500 mb-2">本次用量</div>
-              <div className="space-y-1.5 text-xs">
-                {(["quick", "deep"] as const).map((role) => {
-                  const s = analysis.usage![role]
-                  const totalTok = s.tokens_in + s.tokens_out
-                  return (
-                    <div key={role} className="space-y-0.5">
-                      <div className="flex items-center justify-between text-gray-400">
-                        <span className="w-20 shrink-0">{role === "quick" ? "快速模型" : "深度模型"}</span>
-                        <span className="font-mono text-right">{s.calls}次 / {totalTok > 0 ? totalTok.toLocaleString() : "-"} tok</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600 text-xs truncate max-w-[6rem]">{s.model}</span>
-                        <span className={`font-mono text-xs ${s.cost_cny > 0 ? "text-accent" : "text-gray-600"}`}>
-                          {s.cost_cny > 0 ? `¥${s.cost_cny.toFixed(4)}` : "-"}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
-                <div className="flex items-center justify-between text-white border-t border-border pt-2">
-                  <span>合计</span>
-                  <div className="flex items-center gap-3">
-                    <span className={`font-mono ${analysis.usage.total_cost_cny > 0 ? "text-accent font-bold" : "text-gray-500"}`}>
-                      {analysis.usage.total_cost_cny > 0 ? `¥${analysis.usage.total_cost_cny.toFixed(4)}` : "-"}
-                    </span>
-                    <span className="font-mono font-semibold text-gray-300">
-                      {(() => {
-                        const total = (
-                          analysis.usage.quick.tokens_in + analysis.usage.quick.tokens_out +
-                          analysis.usage.deep.tokens_in  + analysis.usage.deep.tokens_out
-                        )
-                        return total > 0 ? `${total.toLocaleString()}` : "-"
-                      })()}
-                    </span>
-                  </div>
-                </div>
+          {!isRunning && analysis.usage && (() => {
+            const q = analysis.usage.quick
+            const d = analysis.usage.deep
+            const qTok = q.tokens_in + q.tokens_out
+            const dTok = d.tokens_in + d.tokens_out
+            const totalCalls = q.calls + d.calls
+            const totalTok   = qTok + dTok
+            const qRate = qTok > 0 ? q.cost_cny / qTok * 1000 : 0  // CNY per 1K tokens
+            const dRate = dTok > 0 ? d.cost_cny / dTok * 1000 : 0
+            const fmtTok = (n: number) => n > 0 ? n.toLocaleString() : "-"
+            const fmtRate = (r: number) => r > 0 ? r.toFixed(4) : "-"
+            const fmtCost = (c: number) => c > 0 ? c.toFixed(4) : "-"
+            return (
+              <div className="border-t border-border pt-3 px-3 pb-2">
+                <div className="text-xs text-gray-500 mb-2">本次用量</div>
+                {/* Section 1: Calls & Tokens */}
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="text-gray-600">
+                      <th className="text-left font-normal pb-1.5">模型类型</th>
+                      <th className="text-right font-normal pb-1.5">调用次数</th>
+                      <th className="text-right font-normal pb-1.5">Tokens</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-gray-400 font-mono">
+                    <tr>
+                      <td className="py-1 text-left font-sans pl-2">快速</td>
+                      <td className="py-1 text-right">{q.calls}</td>
+                      <td className="py-1 text-right">{fmtTok(qTok)}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 text-left font-sans pl-2">深度</td>
+                      <td className="py-1 text-right">{d.calls}</td>
+                      <td className="py-1 text-right">{fmtTok(dTok)}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border text-gray-300 font-mono">
+                      <td className="pt-2 pb-1 font-sans text-gray-400">调用合计</td>
+                      <td className="pt-2 pb-1 text-right font-bold">{totalCalls}</td>
+                      <td className="pt-2 pb-1 text-right font-bold">{fmtTok(totalTok)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                {/* Section 2: Cost breakdown */}
+                <table className="w-full text-xs border-collapse mt-3 pt-2 border-t border-border">
+                  <thead>
+                    <tr className="text-gray-600">
+                      <th className="text-left font-normal pb-1.5"> </th>
+                      <th className="text-right font-normal pb-1.5">¥/千tok</th>
+                      <th className="text-right font-normal pb-1.5">小计 ¥</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-gray-400 font-mono">
+                    <tr>
+                      <td className="py-1 text-left font-sans pl-2">快速费用</td>
+                      <td className="py-1 text-right">{fmtRate(qRate)}</td>
+                      <td className="py-1 text-right">{fmtCost(q.cost_cny)}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 text-left font-sans pl-2">深度费用</td>
+                      <td className="py-1 text-right">{fmtRate(dRate)}</td>
+                      <td className="py-1 text-right">{fmtCost(d.cost_cny)}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-border font-mono">
+                      <td className="pt-2 pb-1 font-sans text-gray-400">费用合计</td>
+                      <td className="pt-2 pb-1"></td>
+                      <td className={`pt-2 pb-1 text-right font-bold ${analysis.usage.total_cost_cny > 0 ? "text-accent" : "text-gray-500"}`}>
+                        {fmtCost(analysis.usage.total_cost_cny)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Progress timeline mini view */}
           {isRunning && (
