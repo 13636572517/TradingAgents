@@ -84,6 +84,20 @@ class AnalysisStrategy(Base):
     closed_at       = Column(DateTime)
 
 
+class ModelPricing(Base):
+    """Per-model tiered pricing imported from provider pricing table (e.g. Alibaba Cloud Bailian)."""
+    __tablename__ = "model_pricing"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    model_id   = Column(String(100), nullable=False, unique=True, index=True)
+    region     = Column(String(20), default="cn")
+    tiers      = Column(JSON, nullable=False)
+    # tiers format (sorted by max_k asc, last entry has max_k=null = unlimited):
+    # [{"max_k": 32, "input_price": 2.5, "output_price": 10.0}, ...]
+    # max_k unit: thousands of tokens (32 → 32K)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class User(Base):
     """认证用户。密码以 bcrypt 哈希存储，不可逆。"""
     __tablename__ = "users"

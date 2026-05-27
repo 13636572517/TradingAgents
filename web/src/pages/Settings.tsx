@@ -271,6 +271,187 @@ function ModelInput({
   )
 }
 
+// ── Model Pricing import panel ────────────────────────────────────────────────
+type PricingRow = {
+  model_id: string
+  region: string
+  tiers: { max_k: number | null; input_price: number; output_price: number }[]
+  updated_at: string | null
+}
+
+function PricingPanel() {
+  const [rows, setRows] = useState<PricingRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [md, setMd] = useState("")
+  const [importing, setImporting] = useState(false)
+  const [recalcing, setRecalcing] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  const loadPricing = useCallback(async () => {
+    setLoading(true)
+    try { setRows(await api.listPricing()) }
+    catch { /* non-critical */ }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadPricing() }, [loadPricing])
+
+  const handleImport = async () => {
+    if (!md.trim()) return
+    setImporting(true)
+    setMsg(null)
+    try {
+      const r = await api.importPricingMd(md.trim())
+      setMsg({ ok: true, text: `✓ 已导入 ${r.imported} 个模型（跳过 ${r.skipped} 个）：${r.models.join(", ")}` })
+      setMd("")
+      await loadPricing()
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.response?.data?.detail ?? "导入失败" })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleRecalc = async () => {
+    setRecalcing(true)
+    setMsg(null)
+    try {
+      const r = await api.recalculateCosts()
+      const delta = r.total_cost_delta >= 0 ? `+¥${r.total_cost_delta.toFixed(4)}` : `-¥${Math.abs(r.total_cost_delta).toFixed(4)}`
+      setMsg({ ok: true, text: `✓ 已重算 ${r.updated} 份报告成本（跳过 ${r.skipped} 份），总差额 ${delta}` })
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.response?.data?.detail ?? "重算失败" })
+    } finally {
+      setRecalcing(false)
+    }
+  }
+
+  const handleDelete = async (modelId: string) => {
+    try {
+      await api.deletePricing(modelId)
+      setRows((prev) => prev.filter((r) => r.model_id !== modelId))
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <span className="text-white font-medium">模型计费价格表</span>
+          <span className="ml-2 text-gray-500 text-xs">
+            从阿里百炼价格页面复制 Markdown 导入，支持阶梯计费精算
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {rows.length > 0 && (
+            <button
+              onClick={handleRecalc}
+              disabled={recalcing}
+              className="text-xs px-3 py-1 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-50 transition-colors"
+            >
+              {recalcing ? "重算中…" : "重算历史报告成本"}
+            </button>
+          )}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="text-xs px-3 py-1 rounded border border-border text-gray-400 hover:border-accent hover:text-accent transition-colors"
+          >
+            {expanded ? "收起" : "导入价格表"}
+          </button>
+        </div>
+      </div>
+
+      {/* Import section */}
+      {expanded && (
+        <div className="mb-4 space-y-2">
+          <p className="text-xs text-gray-500">
+            打开{" "}
+            <span className="text-accent">阿里云百炼 → 帮助文档 → 模型价格表</span>，
+            选中"## 中国内地"区域的全部 Markdown 内容复制粘贴到下方：
+          </p>
+          <textarea
+            className="w-full h-40 bg-bg border border-border rounded-md px-3 py-2 text-xs text-gray-300 font-mono focus:outline-none focus:border-accent resize-y"
+            placeholder={"## 中国内地\n\n| 模型 ID | 模式 | 单次请求的输入Token数 | 输入单价 | 输出单价 | 免费额度 |\n| --- | --- | --- | --- | --- | --- |\n| qwen-plus | 非思考 | 0<Token≤1M | 0.8元 | 2元 | ... |"}
+            value={md}
+            onChange={(e) => setMd(e.target.value)}
+          />
+          <button
+            onClick={handleImport}
+            disabled={importing || !md.trim()}
+            className="px-4 py-1.5 rounded bg-accent text-black text-xs font-bold hover:bg-accent/80 disabled:opacity-50 transition-colors"
+          >
+            {importing ? "导入中…" : "解析并保存"}
+          </button>
+        </div>
+      )}
+
+      {msg && (
+        <div className={`text-xs rounded px-3 py-2 mb-3 ${msg.ok ? "bg-buy/10 text-buy border border-buy/30" : "bg-red-500/10 text-red-400 border border-red-500/30"}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Loaded models table */}
+      {loading ? (
+        <p className="text-gray-600 text-xs">加载中…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-gray-600 text-xs">暂无价格数据，请从阿里百炼导入</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-gray-400">
+            <thead>
+              <tr className="border-b border-border text-gray-500 text-left">
+                <th className="pb-1.5 pr-4 font-medium">模型</th>
+                <th className="pb-1.5 pr-4 font-medium">阶梯</th>
+                <th className="pb-1.5 pr-4 font-medium">输入价 /百万</th>
+                <th className="pb-1.5 pr-4 font-medium">输出价 /百万</th>
+                <th className="pb-1.5 font-medium">更新时间</th>
+                <th className="pb-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) =>
+                row.tiers.map((tier, ti) => (
+                  <tr key={`${row.model_id}-${ti}`} className="border-b border-border/30">
+                    {ti === 0 && (
+                      <td className="py-1.5 pr-4 font-mono text-gray-300 align-top" rowSpan={row.tiers.length}>
+                        {row.model_id}
+                      </td>
+                    )}
+                    <td className="py-1.5 pr-4 text-gray-500">
+                      {tier.max_k == null ? "无上限" : `≤${tier.max_k}K`}
+                    </td>
+                    <td className="py-1.5 pr-4">¥{tier.input_price}</td>
+                    <td className="py-1.5 pr-4">¥{tier.output_price}</td>
+                    {ti === 0 && (
+                      <>
+                        <td className="py-1.5 text-gray-600 align-top" rowSpan={row.tiers.length}>
+                          {row.updated_at ? row.updated_at.slice(0, 10) : "—"}
+                        </td>
+                        <td className="py-1.5 align-top" rowSpan={row.tiers.length}>
+                          <button
+                            onClick={() => handleDelete(row.model_id)}
+                            className="text-gray-600 hover:text-red-400 transition-colors"
+                            title="删除"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ── Main Settings page ────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [saved, setSaved] = useState<Settings | null>(null)
@@ -584,6 +765,9 @@ export default function SettingsPage() {
 
       {/* Futu OpenD status panel */}
       <FutuPanel />
+
+      {/* Model pricing import panel */}
+      <PricingPanel />
 
       {/* Current config summary */}
       {saved && (
