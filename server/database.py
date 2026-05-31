@@ -7,7 +7,13 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tradingagents.db")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+_is_mysql = DATABASE_URL.startswith("mysql")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=1800 if _is_mysql else -1,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
