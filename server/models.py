@@ -5,6 +5,16 @@ from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, St
 from server.database import Base
 
 
+class TickerSettings(Base):
+    __tablename__ = "ticker_settings"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id   = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    ticker     = Column(String(20), nullable=False)
+    cost_price = Column(Float, nullable=True)    # user's manual entry price
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Analysis(Base):
     __tablename__ = "analyses"
 

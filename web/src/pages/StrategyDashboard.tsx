@@ -141,20 +141,43 @@ function ConfidenceBadge({ confidence, method }: { confidence: string | null; me
 
 // ── Strategy Card ─────────────────────────────────────────────────────────────
 
-function StrategyCard({ s, onClose, onClick, onReExtract, reExtracting }: {
+function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReExtract, reExtracting }: {
   s: Strategy
+  costPrice: number | null
+  onCostPriceChange: (v: number | null) => void
   onClose: () => void
   onClick: () => void
   onReExtract: () => void
   reExtracting: boolean
 }) {
+  const [editing, setEditing] = useState(false)
+  const [inputVal, setInputVal] = useState("")
+
+  const effectiveEntry = costPrice ?? s.entry_price
   const dir = dirLabel(s.direction)
   const sts = statusLabel(s.status)
-  const slAlert = stopLossAlert(s.entry_price, s.current_price, s.stop_loss, s.direction)
-  const tgtAlert = targetAlert(s.entry_price, s.current_price, s.target_price, s.direction)
+  const slAlert = stopLossAlert(effectiveEntry, s.current_price, s.stop_loss, s.direction)
+  const tgtAlert = targetAlert(effectiveEntry, s.current_price, s.target_price, s.direction)
 
-  const priceChange = pct(s.current_price, s.entry_price)
-  const isUp = s.current_price != null && s.entry_price != null && s.current_price > s.entry_price
+  const priceChange = pct(s.current_price, effectiveEntry)
+  const isUp = s.current_price != null && effectiveEntry != null && s.current_price > effectiveEntry
+
+  const upside   = costPrice != null && s.target_price != null && costPrice > 0
+    ? ((s.target_price - costPrice) / costPrice * 100) : null
+  const downside = costPrice != null && s.stop_loss != null && costPrice > 0
+    ? ((costPrice - s.stop_loss) / costPrice * 100) : null
+  const rrRatio  = upside != null && downside != null && downside !== 0
+    ? (upside / downside) : null
+
+  function startEdit() {
+    setInputVal(costPrice != null ? String(costPrice) : "")
+    setEditing(true)
+  }
+  function commitEdit() {
+    const v = parseFloat(inputVal)
+    onCostPriceChange(isNaN(v) || inputVal.trim() === "" ? null : v)
+    setEditing(false)
+  }
 
   return (
     <div className={`bg-surface border rounded-lg p-4 flex flex-col gap-3 transition-colors hover:border-accent/40 ${
@@ -183,10 +206,6 @@ function StrategyCard({ s, onClose, onClick, onReExtract, reExtracting }: {
       {/* Price row */}
       <div className="grid grid-cols-3 gap-2 text-sm">
         <div>
-          <div className="text-gray-500 text-xs mb-0.5">入场价</div>
-          <div className="text-white font-mono">{fmt(s.entry_price, 3)}</div>
-        </div>
-        <div>
           <div className="text-gray-500 text-xs mb-0.5">当前价</div>
           <div className={`font-mono font-semibold ${s.current_price == null ? "text-gray-500" : isUp ? "text-buy" : "text-sell"}`}>
             {fmt(s.current_price, 3)}
@@ -196,7 +215,66 @@ function StrategyCard({ s, onClose, onClick, onReExtract, reExtracting }: {
           <div className="text-gray-500 text-xs mb-0.5">涨跌</div>
           <div className={`font-mono text-sm ${isUp ? "text-buy" : "text-sell"}`}>{priceChange}</div>
         </div>
+        <div>
+          <div className="text-gray-500 text-xs mb-0.5">分析入场价</div>
+          <div className="text-gray-400 font-mono text-xs">{fmt(s.entry_price, 3)}</div>
+        </div>
       </div>
+
+      {/* Manual cost price input */}
+      <div className="flex items-center gap-2 bg-white/3 rounded px-2 py-1.5">
+        <span className="text-xs text-gray-500 shrink-0">入手价</span>
+        {editing ? (
+          <input
+            autoFocus
+            type="number"
+            step="0.001"
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false) }}
+            className="flex-1 bg-transparent border-b border-accent outline-none text-xs font-mono text-white w-0 min-w-0"
+          />
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); startEdit() }}
+            className="flex-1 text-left text-xs font-mono hover:text-accent transition-colors"
+          >
+            {costPrice != null ? <span className="text-white">{fmt(costPrice, 3)}</span> : <span className="text-gray-600">点击输入…</span>}
+          </button>
+        )}
+        {costPrice != null && !editing && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCostPriceChange(null) }}
+            className="text-gray-600 hover:text-red-400 text-[10px] transition-colors"
+            title="清除"
+          >✕</button>
+        )}
+      </div>
+
+      {/* P&L linkage (only when cost price is set) */}
+      {costPrice != null && (upside != null || downside != null) && (
+        <div className="grid grid-cols-3 gap-1 text-[10px]">
+          <div className="bg-buy/5 border border-buy/20 rounded px-1.5 py-1 text-center">
+            <div className="text-gray-500 mb-0.5">潜在盈利</div>
+            <div className={`font-mono font-medium ${upside != null && upside >= 0 ? "text-buy" : "text-sell"}`}>
+              {upside != null ? (upside >= 0 ? "+" : "") + upside.toFixed(2) + "%" : "—"}
+            </div>
+          </div>
+          <div className="bg-red-500/5 border border-red-500/20 rounded px-1.5 py-1 text-center">
+            <div className="text-gray-500 mb-0.5">止损风险</div>
+            <div className="font-mono font-medium text-red-400">
+              {downside != null ? "-" + downside.toFixed(2) + "%" : "—"}
+            </div>
+          </div>
+          <div className="bg-white/3 border border-border rounded px-1.5 py-1 text-center">
+            <div className="text-gray-500 mb-0.5">盈亏比</div>
+            <div className={`font-mono font-medium ${rrRatio != null && rrRatio >= 1 ? "text-accent" : "text-gray-400"}`}>
+              {rrRatio != null ? rrRatio.toFixed(2) : "—"}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Progress bar */}
       <PriceBar
@@ -300,15 +378,27 @@ export default function StrategyDashboard() {
   const [bulkExtracting, setBulkExtracting] = useState(false)
   const [filter, setFilter] = useState<"all" | "active" | "BUY" | "SELL" | "HOLD">("active")
   const [reExtractingId, setReExtractingId] = useState<string | null>(null)
+  const [costPrices, setCostPrices] = useState<Record<string, number | null>>({})
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
     try {
       const data = await api.getStrategies()
       setStrategies(data)
+      // Load cost prices for all unique tickers
+      const tickers = [...new Set(data.map((s) => s.ticker))]
+      const entries = await Promise.all(tickers.map((t) => api.getTickerCostPrice(t)))
+      const map: Record<string, number | null> = {}
+      entries.forEach((e) => { map[e.ticker] = e.cost_price })
+      setCostPrices(map)
     } catch { /* silent */ }
     finally { setLoading(false) }
   }, [])
+
+  const handleCostPriceChange = async (ticker: string, value: number | null) => {
+    setCostPrices((prev) => ({ ...prev, [ticker]: value }))
+    try { await api.setTickerCostPrice(ticker, value) } catch { /* silent */ }
+  }
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -499,6 +589,8 @@ export default function StrategyDashboard() {
             <StrategyCard
               key={s.id}
               s={s}
+              costPrice={costPrices[s.ticker] ?? null}
+              onCostPriceChange={(v) => handleCostPriceChange(s.ticker, v)}
               onClose={() => handleClose(s.id)}
               onClick={() => navigate(`/report/${s.analysis_id}`)}
               onReExtract={() => handleReExtract(s.id)}

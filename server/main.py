@@ -14,6 +14,7 @@ from server.routers.auth import router as auth_router
 from server.routers.admin import router as admin_router
 from server.routers.strategies import router as strategies_router
 from server.routers.pricing import router as pricing_router
+from server.routers.ticker_settings import router as ticker_settings_router
 from server.auth import get_current_user
 
 app = FastAPI(title="TradingAgents Web API", version="1.0.0")
@@ -44,6 +45,7 @@ app.include_router(stats_router,         dependencies=_auth_dep)
 app.include_router(kline_router,         dependencies=_auth_dep)
 app.include_router(strategies_router,    dependencies=_auth_dep)
 app.include_router(pricing_router,       dependencies=_auth_dep)
+app.include_router(ticker_settings_router, dependencies=_auth_dep)
 
 
 @app.on_event("startup")

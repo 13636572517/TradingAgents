@@ -113,6 +113,12 @@ export const api = {
   reExtractStrategy: (id: string) => http.post<Strategy>(`/strategies/${id}/re-extract`).then((r) => r.data),
   reExtractAllStrategies: () => http.post<{ updated: number; skipped: number; failed: number }>("/strategies/re-extract-all").then((r) => r.data),
 
+  // ── Ticker Settings ──────────────────────────────────────────────────────────
+  getTickerCostPrice: (ticker: string) =>
+    http.get<{ ticker: string; cost_price: number | null }>(`/ticker-settings/${encodeURIComponent(ticker)}`).then((r) => r.data),
+  setTickerCostPrice: (ticker: string, cost_price: number | null) =>
+    http.put<{ ticker: string; cost_price: number | null }>(`/ticker-settings/${encodeURIComponent(ticker)}`, { cost_price }).then((r) => r.data),
+
   // ── Pricing ──────────────────────────────────────────────────────────────────
   importPricingMd: (markdown: string, region = "cn") =>
     http.post<{ imported: number; skipped: number; models: string[] }>(
