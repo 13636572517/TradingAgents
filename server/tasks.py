@@ -151,6 +151,29 @@ def _apply_llm_config(config: dict, llm_config: dict) -> dict:
     return config
 
 
+def _build_past_context(db, ticker: str, exclude_id: str) -> str:
+    """Build a past_context string from the most recent completed analysis of the same ticker."""
+    from server.models import Analysis as _Analysis
+    prev = (
+        db.query(_Analysis)
+        .filter(
+            _Analysis.ticker == ticker,
+            _Analysis.status == "complete",
+            _Analysis.id != exclude_id,
+        )
+        .order_by(_Analysis.completed_at.desc())
+        .first()
+    )
+    if not prev:
+        return ""
+
+    result = prev.result or {}
+    decision_text = result.get("final_trade_decision") or result.get("trader_investment_plan") or ""
+    date_str = prev.trade_date or (prev.completed_at.strftime("%Y-%m-%d") if prev.completed_at else "unknown")
+    tag = f"[{date_str} | {ticker} | {prev.decision or 'N/A'}]"
+    return f"{tag}\n\nDECISION:\n{decision_text}" if decision_text else tag
+
+
 @celery_app.task(bind=True, name="server.tasks.run_analysis")
 def run_analysis(self, analysis_id: str):
     """Run TradingAgentsGraph and write progress to Analysis.stage + stage_detail."""
@@ -214,8 +237,9 @@ def run_analysis(self, analysis_id: str):
             config=config,
             callbacks=[usage_tracker],
         )
+        past_context = _build_past_context(db, record.ticker, exclude_id=analysis_id)
         init_state = ta.propagator.create_initial_state(
-            record.ticker, record.trade_date, asset_type="stock", past_context=""
+            record.ticker, record.trade_date, asset_type="stock", past_context=past_context
         )
         args = ta.propagator.get_graph_args()
 
