@@ -141,7 +141,7 @@ function ConfidenceBadge({ confidence, method }: { confidence: string | null; me
 
 // ── Strategy Card ─────────────────────────────────────────────────────────────
 
-function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReExtract, reExtracting }: {
+function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReExtract, reExtracting, onReAnalyze }: {
   s: Strategy
   costPrice: number | null
   onCostPriceChange: (v: number | null) => void
@@ -149,6 +149,7 @@ function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReE
   onClick: () => void
   onReExtract: () => void
   reExtracting: boolean
+  onReAnalyze: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [inputVal, setInputVal] = useState("")
@@ -179,11 +180,18 @@ function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReE
     setEditing(false)
   }
 
+  const isExpired = s.status === "expired"
+
   return (
-    <div className={`bg-surface border rounded-lg p-4 flex flex-col gap-3 transition-colors hover:border-accent/40 ${
+    <div className={`border rounded-lg p-4 flex flex-col gap-3 transition-colors hover:border-accent/40 ${
+      isExpired
+        ? "bg-amber-950/25"
+        : "bg-surface"
+    } ${
       slAlert?.level === "hit" ? "border-red-500/60" :
       slAlert?.level === "near" ? "border-orange-400/50" :
       tgtAlert ? "border-buy/50" :
+      isExpired ? "border-amber-800/30" :
       "border-border"
     }`}>
       {/* Header row */}
@@ -345,6 +353,13 @@ function StrategyCard({ s, costPrice, onCostPriceChange, onClose, onClick, onReE
           >
             {reExtracting ? "提取中…" : "AI重提"}
           </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onReAnalyze() }}
+            className="text-amber-500/80 hover:text-amber-400 transition-colors font-medium"
+            title="以当前股票重新发起一次新分析"
+          >
+            ↻ 重新分析
+          </button>
           {s.status === "active" && (
             <button
               onClick={(e) => { e.stopPropagation(); onClose() }}
@@ -376,7 +391,7 @@ export default function StrategyDashboard() {
   const [backfilling, setBackfilling] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null)
   const [bulkExtracting, setBulkExtracting] = useState(false)
-  const [filter, setFilter] = useState<"all" | "active" | "BUY" | "SELL" | "HOLD">("active")
+  const [filter, setFilter] = useState<"all" | "active" | "expired" | "BUY" | "SELL" | "HOLD">("all")
   const [reExtractingId, setReExtractingId] = useState<string | null>(null)
   const [costPrices, setCostPrices] = useState<Record<string, number | null>>({})
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -481,9 +496,10 @@ export default function StrategyDashboard() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = strategies.filter((s) => {
-    if (filter === "active") return s.status === "active"
-    if (filter === "all")    return true
-    return s.direction === filter
+    if (filter === "all")     return s.status !== "closed"
+    if (filter === "active")  return s.status === "active"
+    if (filter === "expired") return s.status === "expired"
+    return s.direction === filter && s.status !== "closed"
   })
 
   const counts = {
@@ -552,7 +568,7 @@ export default function StrategyDashboard() {
 
       {/* Filter tabs */}
       <div className="flex gap-1 mb-5 flex-wrap">
-        {(["active", "all", "BUY", "SELL", "HOLD"] as const).map((f) => (
+        {(["all", "active", "expired", "BUY", "SELL", "HOLD"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -562,7 +578,7 @@ export default function StrategyDashboard() {
                 : "border-border text-gray-500 hover:border-accent/50 hover:text-gray-300"
             }`}
           >
-            {{ active: "监控中", all: "全部", BUY: "买入", SELL: "卖出", HOLD: "持有" }[f]}
+            {{ all: "全部", active: "监控中", expired: "已过期", BUY: "买入", SELL: "卖出", HOLD: "持有" }[f]}
           </button>
         ))}
       </div>
@@ -595,6 +611,7 @@ export default function StrategyDashboard() {
               onClick={() => navigate(`/report/${s.analysis_id}`)}
               onReExtract={() => handleReExtract(s.id)}
               reExtracting={reExtractingId === s.id}
+              onReAnalyze={() => navigate(`/new?ticker=${encodeURIComponent(s.ticker)}`)}
             />
           ))}
         </div>
