@@ -38,6 +38,7 @@ def init_db():
     _migrate_add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT 0")
     _migrate_add_column("analyses", "owner_id", "INT NULL")
     _migrate_add_column("app_settings", "max_api_calls", "INT NOT NULL DEFAULT 60")
+    _migrate_add_column("app_settings", "tickflow_api_key", "TEXT")
     _migrate_add_column("analysis_strategies", "extraction_method",  "VARCHAR(10) DEFAULT 'regex'")
     _migrate_add_column("analysis_strategies", "confidence",         "VARCHAR(10)")
     _migrate_add_column("analysis_strategies", "stop_loss_basis",    "VARCHAR(50)")

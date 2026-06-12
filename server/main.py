@@ -1,4 +1,5 @@
 # server/main.py
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -53,6 +54,17 @@ app.include_router(screener_router,      dependencies=_auth_dep)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Re-hydrate the TickFlow API key from the DB into the process env so the
+    # market-data client can authenticate after a restart.
+    try:
+        from server.database import SessionLocal
+        from server.models import AppSettings
+        with SessionLocal() as _db:
+            _s = _db.get(AppSettings, 1)
+            if _s and _s.tickflow_api_key:
+                os.environ["TICKFLOW_API_KEY"] = _s.tickflow_api_key
+    except Exception:
+        pass  # non-critical; key can still be set via the settings UI
     # Pre-warm the stock search cache in a background thread so the first
     # search request returns instantly instead of waiting 8+ seconds.
     import threading

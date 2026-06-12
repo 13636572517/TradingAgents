@@ -79,6 +79,14 @@ export const api = {
     http.get<{ connected: boolean; username?: string; queries_remaining?: number; error?: string }>(
       "/settings/jq-status"
     ).then((r) => r.data),
+  getTickflowKey: () =>
+    http.get<{ has_key: boolean; masked?: string }>("/settings/tickflow-key").then((r) => r.data),
+  saveTickflowKey: (apiKey: string) =>
+    http.post<{ has_key: boolean; masked?: string }>("/settings/tickflow-key", { api_key: apiKey }).then((r) => r.data),
+  getTickflowStatus: () =>
+    http.get<{ connected: boolean; latency_ms?: number; universe_count?: number; error?: string }>(
+      "/settings/tickflow-status"
+    ).then((r) => r.data),
 
   getAggregateStats: () =>
     http.get<AggregateStats>("/stats").then((r) => r.data),

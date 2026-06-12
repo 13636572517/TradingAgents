@@ -289,6 +289,58 @@ def jq_status():
     return test_jq_connection()
 
 
+# ── TickFlow market-data API key ────────────────────────────────────────────────
+
+class TickflowKeyUpdate(BaseModel):
+    api_key: str
+
+
+class TickflowKeyOut(BaseModel):
+    has_key: bool
+    masked: Optional[str] = None
+
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    if not key:
+        return None
+    if len(key) <= 10:
+        return key[:2] + "***"
+    return f"{key[:6]}…{key[-4:]}"
+
+
+@router.get("/tickflow-key", response_model=TickflowKeyOut)
+def get_tickflow_key(db: Session = Depends(get_db)):
+    """Report whether a TickFlow key is stored (never returns the raw key)."""
+    row = _get_or_create(db)
+    return TickflowKeyOut(has_key=bool(row.tickflow_api_key),
+                          masked=_mask_key(row.tickflow_api_key))
+
+
+@router.post("/tickflow-key", response_model=TickflowKeyOut)
+def save_tickflow_key(payload: TickflowKeyUpdate, db: Session = Depends(get_db)):
+    """Persist the TickFlow API key and make it active for this process."""
+    row = _get_or_create(db)
+    key = (payload.api_key or "").strip()
+    row.tickflow_api_key = key or None
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(row)
+    if row.tickflow_api_key:
+        os.environ["TICKFLOW_API_KEY"] = row.tickflow_api_key
+    else:
+        os.environ.pop("TICKFLOW_API_KEY", None)
+    return TickflowKeyOut(has_key=bool(row.tickflow_api_key),
+                          masked=_mask_key(row.tickflow_api_key))
+
+
+@router.get("/tickflow-status")
+def tickflow_status(db: Session = Depends(get_db)):
+    """Test TickFlow connectivity using the stored API key."""
+    from tradingagents.dataflows.tickflow_data import test_tickflow_connection
+    row = _get_or_create(db)
+    return test_tickflow_connection(api_key=row.tickflow_api_key)
+
+
 @router.get("/mairui-status")
 def mairui_status():
     """Check MaiRui API connectivity."""

@@ -108,6 +108,109 @@ function FutuPanel() {
   )
 }
 
+// ── TickFlow market-data API key panel ──────────────────────────────────────────
+function TickflowPanel() {
+  const [hasKey, setHasKey] = useState(false)
+  const [masked, setMasked] = useState<string | undefined>(undefined)
+  const [keyInput, setKeyInput] = useState("")
+  const [showKey, setShowKey] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [status, setStatus] = useState<{
+    connected: boolean; latency_ms?: number; universe_count?: number; error?: string
+  } | null>(null)
+
+  useEffect(() => {
+    api.getTickflowKey().then((r) => { setHasKey(r.has_key); setMasked(r.masked) }).catch(() => {})
+  }, [])
+
+  const save = async () => {
+    if (!keyInput.trim()) return
+    setSaving(true); setStatus(null)
+    try {
+      const r = await api.saveTickflowKey(keyInput.trim())
+      setHasKey(r.has_key); setMasked(r.masked); setKeyInput(""); setShowKey(false)
+    } catch {
+      setStatus({ connected: false, error: "保存失败，请检查后端" })
+    } finally { setSaving(false) }
+  }
+
+  const check = async () => {
+    setChecking(true)
+    try { setStatus(await api.getTickflowStatus()) }
+    catch { setStatus({ connected: false, error: "无法连接到后端" }) }
+    finally { setChecking(false) }
+  }
+
+  return (
+    <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <span className="text-white font-medium">TickFlow（A股行情数据源）</span>
+          <span className="ml-2 text-gray-500 text-xs">
+            在 tickflow.org 注册并申请 API Key（免费）
+          </span>
+        </div>
+        {hasKey && (
+          <span className="text-xs text-buy">✓ 已配置{masked ? `（${masked}）` : ""}</span>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <input
+            type={showKey ? "text" : "password"}
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder={hasKey ? "输入新 Key 可覆盖（留空保持不变）" : "tk_..."}
+            className="w-full bg-bg border border-border rounded px-3 py-1.5 pr-14 text-xs text-white font-mono focus:border-accent outline-none"
+          />
+          {keyInput && (
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-300"
+            >
+              {showKey ? "隐藏" : "显示"}
+            </button>
+          )}
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || !keyInput.trim()}
+          className="text-xs px-3 py-1.5 rounded border border-border text-gray-300 hover:border-accent hover:text-accent disabled:opacity-40 transition-colors whitespace-nowrap"
+        >
+          {saving ? "保存中…" : "保存"}
+        </button>
+        <button
+          onClick={check}
+          disabled={checking || !hasKey}
+          className="text-xs px-3 py-1.5 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-40 transition-colors whitespace-nowrap"
+        >
+          {checking ? "检测中…" : "测试连通性"}
+        </button>
+      </div>
+
+      {status && (
+        <div className={`mt-3 rounded p-2.5 text-xs ${
+          status.connected
+            ? "bg-buy/10 border border-buy/30 text-buy"
+            : "bg-red-500/10 border border-red-500/30 text-red-400"
+        }`}>
+          {status.connected
+            ? `✓ 连接成功${status.latency_ms != null ? `（${status.latency_ms}ms` : ""}${
+                status.universe_count != null ? `，${status.universe_count} 个标的池）` : status.latency_ms != null ? "）" : ""
+              }${status.error ? ` — ${status.error}` : ""}`
+            : `✗ ${status.error ?? "连接失败"}`}
+        </div>
+      )}
+      {!status && !hasKey && (
+        <p className="mt-2 text-gray-600 text-xs">保存 API Key 后即可测试连通性</p>
+      )}
+    </div>
+  )
+}
+
 // ── LiveModelPicker modal ─────────────────────────────────────────────────────
 type LiveModel = { id: string; free_tier: boolean }
 
@@ -765,6 +868,9 @@ export default function SettingsPage() {
 
       {/* Futu OpenD status panel */}
       <FutuPanel />
+
+      {/* TickFlow market-data API key panel */}
+      <TickflowPanel />
 
       {/* Model pricing import panel */}
       <PricingPanel />
