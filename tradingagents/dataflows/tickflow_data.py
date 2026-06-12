@@ -679,6 +679,36 @@ def tf_universe_detail(universe_id: str) -> dict:
     return resp.get("data", {})
 
 
+def tf_universe_symbols(universe_ids: list[str]) -> list[str]:
+    """Fetch symbols from multiple TickFlow universes in a **single quotes request**.
+
+    Much faster than calling ``tf_universe_detail`` per-fragment. Uses
+    ``POST /v1/quotes`` with ``universes`` param — TickFlow returns all
+    symbols across the specified universes with current quotes attached.
+
+    Parameters
+    ----------
+    universe_ids : list[str]
+        TickFlow universe IDs, e.g. ``["CN_Equity_SW1_480401", "CN_Equity_SW1_480501"]``.
+
+    Returns
+    -------
+    list[str]
+        Unique TickFlow-format symbols (e.g. ``["600519.SH", "000001.SZ", ...]``).
+    """
+    if not universe_ids:
+        return []
+    resp = _post("quotes", {"universes": universe_ids})
+    symbols = []
+    seen = set()
+    for item in resp.get("data", []) or []:
+        sym = item.get("symbol", "")
+        if sym and sym not in seen:
+            seen.add(sym)
+            symbols.append(sym)
+    return symbols
+
+
 def tf_financial_metrics(symbols: list[str], latest: bool = True) -> dict:
     """Batch financial metrics for tickers (Yahoo Finance format).
 

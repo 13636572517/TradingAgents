@@ -231,26 +231,32 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
 def _cons_tickflow(board_name: str) -> list[str]:
     """Get board constituents by unioning every TickFlow fragment universe of a board.
 
-    A 申万一级 board (e.g. "家用电器") maps to several CN_Equity_SW1_* fragment
-    universes; we merge their symbol lists and de-duplicate to 6-digit codes.
+    Uses ``POST /v1/quotes`` with ``universes`` param (via ``tf_universe_symbols``)
+    to fetch all symbols across the board's fragment universes in a **single API
+    call** — replacing the old O(N) per-fragment ``tf_universe_detail`` calls
+    that caused timeouts on boards with many fragments.
     """
-    from tradingagents.dataflows.tickflow_data import tf_universe_detail
+    from tradingagents.dataflows.tickflow_data import tf_universe_symbols
+
     ids = _TF_BOARD_IDS.get(board_name)
     if ids is None:
         # Mapping not built yet (e.g. boards served from cache) — rebuild it.
         _discover_sector_universes()
         ids = _TF_BOARD_IDS.get(board_name, [])
-    codes: list[str] = []
+    if not ids:
+        return []
+
+    # Single quotes call for all fragment universes of this board
+    symbols = tf_universe_symbols(ids)
+    codes = []
     seen: set[str] = set()
-    for uid in ids:
-        detail = tf_universe_detail(uid)
-        for sym in (detail or {}).get("symbols", []):
-            six = sym.split(".")[0]
-            if six and six.isdigit():
-                six = six.zfill(6)
-                if six not in seen:
-                    seen.add(six)
-                    codes.append(six)
+    for sym in symbols:
+        six = sym.split(".")[0]
+        if six and six.isdigit():
+            six = six.zfill(6)
+            if six not in seen:
+                seen.add(six)
+                codes.append(six)
     return codes
 
 
