@@ -473,6 +473,10 @@ def test_tf_connection(api_key: Optional[str] = None) -> dict:
     return {"connected": True, "latency_ms": latency_ms, "universe_count": count}
 
 
+# Alias for settings.py import compatibility
+test_tickflow_connection = test_tf_connection
+
+
 # ── Batch helpers for sector_data.py ───────────────────────────────────────────
 
 def _post(path: str, body: dict):
