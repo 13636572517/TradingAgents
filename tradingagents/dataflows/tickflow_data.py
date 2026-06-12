@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
 from datetime import datetime
 from typing import Annotated, Optional
@@ -105,8 +106,17 @@ def _from_tf_code(tf_symbol: str) -> str:
 
 # ── Generic request helper ─────────────────────────────────────────────────────
 
-def _get(path: str, params: dict = None):
-    """GET request to TickFlow API. Raises TickFlowError on failure."""
+_MAX_RETRIES = 4
+
+
+def _request(method: str, path: str, *, params: dict = None, json_body: dict = None):
+    """Issue a TickFlow request with retry on 429 / transient network errors.
+
+    Raises TickFlowError on auth failure, non-retryable status, or after the
+    retry budget is exhausted. 429 and network errors back off exponentially —
+    this lets the whole-market screener fan out hundreds of batch calls without a
+    single rate-limit blip aborting the run.
+    """
     key = _api_key()
     if not key:
         raise TickFlowError(
@@ -114,20 +124,34 @@ def _get(path: str, params: dict = None):
             "Get an API key at tickflow.org and add TICKFLOW_API_KEY=xxx to .env"
         )
     url = f"{BASE_URL}/{path.lstrip('/')}"
-    try:
-        r = _session().get(url, params=params, timeout=_TIMEOUT)
-    except requests.RequestException as e:
-        raise TickFlowError(f"TickFlow request failed: {e}") from e
-    if r.status_code == 401 or r.status_code == 403:
-        raise TickFlowError(f"TickFlow API key invalid (HTTP {r.status_code})")
-    if r.status_code == 429:
-        raise TickFlowError("TickFlow rate limited (HTTP 429)")
-    if r.status_code != 200:
-        raise TickFlowError(f"TickFlow HTTP {r.status_code}: {r.text[:200]}")
-    try:
-        return r.json()
-    except ValueError as e:
-        raise TickFlowError(f"TickFlow bad JSON response: {e}") from e
+    last: Optional[TickFlowError] = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            r = _session().request(method, url, params=params, json=json_body,
+                                   timeout=_TIMEOUT)
+        except requests.RequestException as e:
+            last = TickFlowError(f"TickFlow request failed: {e}")
+            time.sleep(min(8.0, 1.0 * 2 ** attempt) + random.uniform(0.2, 0.8))
+            continue
+        if r.status_code in (401, 403):
+            raise TickFlowError(f"TickFlow API key invalid/forbidden "
+                                f"(HTTP {r.status_code}): {r.text[:120]}")
+        if r.status_code == 429:
+            last = TickFlowError("TickFlow rate limited (HTTP 429)")
+            time.sleep(min(10.0, 1.5 * 2 ** attempt) + random.uniform(0.3, 1.0))
+            continue
+        if r.status_code != 200:
+            raise TickFlowError(f"TickFlow HTTP {r.status_code}: {r.text[:200]}")
+        try:
+            return r.json()
+        except ValueError as e:
+            raise TickFlowError(f"TickFlow bad JSON response: {e}") from e
+    raise last or TickFlowError("TickFlow request failed (retries exhausted)")
+
+
+def _get(path: str, params: dict = None):
+    """GET request to TickFlow API (retried). Raises TickFlowError on failure."""
+    return _request("GET", path, params=params)
 
 
 def _ts_to_date(ts_ms: int) -> str:
@@ -480,28 +504,62 @@ test_tickflow_connection = test_tf_connection
 # ── Batch helpers for sector_data.py ───────────────────────────────────────────
 
 def _post(path: str, body: dict):
-    """POST request to TickFlow API. Raises TickFlowError on failure."""
-    key = _api_key()
-    if not key:
-        raise TickFlowError(
-            "TICKFLOW_API_KEY not set. "
-            "Get an API key at tickflow.org and add TICKFLOW_API_KEY=xxx to .env"
-        )
-    url = f"{BASE_URL}/{path.lstrip('/')}"
-    try:
-        r = _session().post(url, json=body, timeout=_TIMEOUT)
-    except requests.RequestException as e:
-        raise TickFlowError(f"TickFlow request failed: {e}") from e
-    if r.status_code == 401 or r.status_code == 403:
-        raise TickFlowError(f"TickFlow API key invalid (HTTP {r.status_code})")
-    if r.status_code == 429:
-        raise TickFlowError("TickFlow rate limited (HTTP 429)")
-    if r.status_code != 200:
-        raise TickFlowError(f"TickFlow HTTP {r.status_code}: {r.text[:200]}")
-    try:
-        return r.json()
-    except ValueError as e:
-        raise TickFlowError(f"TickFlow bad JSON response: {e}") from e
+    """POST request to TickFlow API (retried). Raises TickFlowError on failure."""
+    return _request("POST", path, json_body=body)
+
+
+# TickFlow Expert batch limits (按标的查询): financials 100/req, instruments ≥200/req.
+_FIN_BATCH = 100
+_INSTR_BATCH = 200
+
+
+def tf_instruments(tf_symbols: list[str]) -> dict:
+    """Batch instrument metadata. Returns {6-digit code: {total_shares, float_shares, name}}.
+
+    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH").
+    """
+    out: dict[str, dict] = {}
+    for i in range(0, len(tf_symbols), _INSTR_BATCH):
+        chunk = tf_symbols[i:i + _INSTR_BATCH]
+        resp = _post("instruments", {"symbols": chunk})
+        for item in resp.get("data", []) or []:
+            # Key by the symbol's 6-digit prefix — TickFlow's ``code`` field is not
+            # reliably unique across the universe (collapses ~5500 → ~2900).
+            six = item.get("symbol", "").split(".")[0].zfill(6)
+            if not six.isdigit():
+                continue
+            ext = item.get("ext") or {}
+            out[six] = {
+                "total_shares": ext.get("total_shares"),
+                "float_shares": ext.get("float_shares"),
+                "name": item.get("name", ""),
+            }
+    return out
+
+
+def tf_financials_latest(tf_symbols: list[str]) -> dict:
+    """Batch the latest core financial metrics for many symbols.
+
+    Returns {6-digit code: {bps, eps_basic, period_end, roe}} using the most recent
+    reporting period (``latest=true``).  ``tf_symbols`` are TickFlow-format symbols.
+    """
+    out: dict[str, dict] = {}
+    for i in range(0, len(tf_symbols), _FIN_BATCH):
+        chunk = tf_symbols[i:i + _FIN_BATCH]
+        resp = _get("financials/metrics",
+                    {"symbols": ",".join(chunk), "latest": "true"})
+        for sym, records in (resp.get("data") or {}).items():
+            if not records:
+                continue
+            r = records[0]
+            six = sym.split(".")[0].zfill(6)
+            out[six] = {
+                "bps": r.get("bps"),
+                "eps_basic": r.get("eps_basic"),
+                "period_end": r.get("period_end"),
+                "roe": r.get("roe"),
+            }
+    return out
 
 
 def tf_batch_quotes(symbols: list[str]) -> dict:
@@ -600,33 +658,6 @@ def tf_batch_klines(symbols: list[str], period: str = "1d",
     for tf_sym, kdata in resp.get("data", {}).items():
         six = _from_tf_code(tf_sym).split(".")[0]
         out[six] = kdata
-    return out
-
-
-def tf_instruments(symbols: list[str]) -> dict:
-    """Batch instrument metadata for tickers (Yahoo Finance format).
-
-    Returns dict keyed by 6-digit code with name, exchange, type, etc.
-    """
-    if not symbols:
-        return {}
-    tf_codes = [_to_tf_code(s) for s in symbols]
-    resp = _post("instruments", {"symbols": tf_codes})
-    out: dict[str, dict] = {}
-    for item in resp.get("data", []):
-        tf_sym = item.get("symbol", "")
-        six = _from_tf_code(tf_sym).split(".")[0]
-        ext = item.get("ext") or {}
-        out[six] = {
-            "name": item.get("name", ""),
-            "exchange": item.get("exchange", ""),
-            "type": item.get("type", ""),
-            "total_shares": ext.get("total_shares"),
-            "float_shares": ext.get("float_shares"),
-            "limit_up": ext.get("limit_up"),
-            "limit_down": ext.get("limit_down"),
-            "listing_date": ext.get("listing_date"),
-        }
     return out
 
 

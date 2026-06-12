@@ -271,9 +271,9 @@ def get_market_spot(ttl: float = 600):
     value: {code, name, price, pct_change, amount, pe, pb, total_mktcap, float_mktcap, turnover}
     `amount` = 成交额 (CNY, liquidity proxy); `pe` = 市盈率-动态; `pb` = 市净率.
 
-    Provider chain: TickFlow (universe-based, 1 request) → AkShare(EM) → JoinQuant.
-    TickFlow's ``POST /v1/quotes`` with ``universes`` param fetches the entire
-    CN_Equity_A pool in a single API call — no pagination needed.
+    Provider chain: TickFlow (Expert: quotes + instruments + financials) →
+    AkShare(EM) → JoinQuant. TickFlow quotes carry only price/volume, so PE/PB/
+    market-cap are computed here from share counts and per-share financials.
     """
     cached = _cache_get("market_spot", ttl)
     if cached is not None:
@@ -289,21 +289,92 @@ def get_market_spot(ttl: float = 600):
 
 
 def _spot_tickflow() -> dict:
-    """Whole-market snapshot via TickFlow universe-based quotes.
+    """Whole-market valuation snapshot assembled from three TickFlow batch feeds.
 
-    Uses ``POST /v1/quotes`` with ``universes=["CN_Equity_A"]`` to fetch
-    all ~5,500 A-shares in a **single request** (no pagination, no rate-limit).
-    Returns dict keyed by 6-digit code.
+      - universe quotes  → price / amount / turnover / name / pct_change  (1 request)
+      - instruments      → total & float shares → market cap              (~28 requests)
+      - financials       → bps → PB, eps → PE (annualised), roe           (~56 requests)
+
+    TickFlow quotes carry only price/volume, so the East-Money-equivalent valuation
+    fields (pe / pb / total_mktcap) are derived here. Returns dict keyed by 6-digit code.
     """
-    from tradingagents.dataflows.tickflow_data import tf_universe_quotes
+    from tradingagents.dataflows.tickflow_data import (
+        _post, tf_instruments, tf_financials_latest)
 
-    logger.info("_spot_tickflow: fetching CN_Equity_A universe via single request…")
-    out = tf_universe_quotes(["CN_Equity_A"])
-    if out:
-        logger.info("_spot_tickflow: %d symbols fetched", len(out))
-    else:
-        logger.warning("_spot_tickflow: returned empty — universe may not exist or API issue")
+    resp = _post("quotes", {"universes": ["CN_Equity_A"]})
+    items = resp.get("data", []) or []
+    if not items:
+        return {}
+
+    quotes: dict[str, tuple] = {}   # 6-digit -> (tf_symbol, item)
+    tf_syms: list[str] = []
+    for it in items:
+        sym = it.get("symbol", "")
+        six = sym.split(".")[0].zfill(6)
+        if not six.isdigit():
+            continue
+        quotes[six] = (sym, it)
+        tf_syms.append(sym)
+    logger.info("_spot_tickflow: %d quotes; fetching shares + financials…", len(tf_syms))
+
+    instr = tf_instruments(tf_syms)
+    fin = tf_financials_latest(tf_syms)
+    logger.info("_spot_tickflow: enriched %d instruments, %d financials",
+                len(instr), len(fin))
+
+    out: dict[str, dict] = {}
+    for six, (sym, it) in quotes.items():
+        ext = it.get("ext") or {}
+        price = _to_float(it.get("last_price"))
+        im = instr.get(six) or {}
+        fm = fin.get(six) or {}
+        tshare = _to_float(im.get("total_shares"))
+        fshare = _to_float(im.get("float_shares"))
+        bps = _to_float(fm.get("bps"))
+        eps = _to_float(fm.get("eps_basic"))
+        out[six] = {
+            "code": six,
+            "name": ext.get("name") or im.get("name") or "",
+            "price": price,
+            "pct_change": _pct(ext.get("change_pct")),
+            "amount": _to_float(it.get("amount")),
+            "pe": _annualised_pe(price, eps, fm.get("period_end")),
+            "pb": (price / bps) if (price and bps and bps > 0) else None,
+            "total_mktcap": (price * tshare) if (price and tshare) else None,
+            "float_mktcap": (price * fshare) if (price and fshare) else None,
+            "turnover": _pct(ext.get("turnover_rate")),
+            "roe": _to_float(fm.get("roe")),
+        }
     return out
+
+
+def _pct(v) -> Optional[float]:
+    """TickFlow returns change_pct / turnover_rate as fractions (0.0096); the
+    screener/snapshots use percent numbers (0.96), matching East Money/AkShare."""
+    f = _to_float(v)
+    return f * 100 if f is not None else None
+
+
+def _annualised_pe(price, eps_ytd, period_end) -> Optional[float]:
+    """Approximate a rolling PE from the latest cumulative (YTD) EPS.
+
+    Chinese quarterly EPS is cumulative within the year, so we annualise:
+    Q1×4, H1×2, Q3×4/3, FY×1. Good enough for a relative percentile screen;
+    returns None for loss-making or missing data.
+    """
+    p = _to_float(price)
+    e = _to_float(eps_ytd)
+    if p is None or e is None or e <= 0 or not period_end:
+        return None
+    try:
+        month = int(str(period_end)[5:7])
+    except (ValueError, IndexError):
+        return None
+    quarter = {3: 1, 6: 2, 9: 3, 12: 4}.get(month)
+    if not quarter:
+        return None
+    eps_annual = e * (4.0 / quarter)
+    return round(p / eps_annual, 2) if eps_annual > 0 else None
 
 
 def _spot_akshare_em() -> dict:
@@ -384,14 +455,24 @@ def _spot_jq() -> dict:
 # ── Optional factor: ROE (from latest earnings report) ───────────────────────────
 
 def get_roe_map(ttl: float = 86400) -> dict[str, float]:
-    """Return {6-digit code -> ROE(%)} from the most recent quarterly earnings report.
+    """Return {6-digit code -> ROE(%)}.
 
-    Tries the last few quarter-ends until AkShare returns data. Best-effort: returns
-    an empty dict on failure so the screener can degrade gracefully.
+    Preferred source is the ROE already attached to the whole-market spot snapshot
+    (TickFlow financials), which avoids a second data round-trip. Falls back to the
+    AkShare earnings report. Best-effort: returns an empty dict on failure so the
+    screener can degrade gracefully.
     """
     cached = _cache_get("roe_map", ttl)
     if cached is not None:
         return cached  # type: ignore
+
+    # Prefer ROE carried by the spot snapshot (already fetched for valuation).
+    spot = get_market_spot()
+    roe_map = {c: v["roe"] for c, v in spot.items()
+               if isinstance(v, dict) and v.get("roe") is not None}
+    if roe_map:
+        _cache_set("roe_map", roe_map)
+        return roe_map
 
     try:
         import akshare as ak
