@@ -3,7 +3,7 @@ import axios from "axios"
 import type {
   Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
   ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
-  AuthToken, AuthUser, AdminUser, ShareUser, Strategy,
+  AuthToken, AuthUser, AdminUser, ShareUser, Strategy, ScreeningRun,
 } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
@@ -134,6 +134,20 @@ export const api = {
     http.post<{ updated: number; skipped: number; total_cost_delta: number }>(
       "/pricing/recalculate"
     ).then((r) => r.data),
+
+  // ── Stock Screener ────────────────────────────────────────────────────────────
+  runScreening: (payload?: { auto_analyze?: boolean; auto_analyze_top?: number; depth?: number }) =>
+    http.post<ScreeningRun>("/screener/run", payload ?? {}).then((r) => r.data),
+  listScreeningRuns: (limit = 20) =>
+    http.get<ScreeningRun[]>("/screener/runs", { params: { limit } }).then((r) => r.data),
+  getLatestScreeningRun: () =>
+    http.get<ScreeningRun>("/screener/runs/latest").then((r) => r.data),
+  getScreeningRun: (id: string) =>
+    http.get<ScreeningRun>(`/screener/runs/${id}`).then((r) => r.data),
+  analyzeCandidate: (candidateId: string, depth = 1) =>
+    http.post<Analysis>(`/screener/candidates/${candidateId}/analyze`, null, { params: { depth } }).then((r) => r.data),
+  analyzeAllCandidates: (runId: string, depth = 1, board_name?: string) =>
+    http.post<Analysis[]>(`/screener/runs/${runId}/analyze-all`, null, { params: { depth, board_name } }).then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

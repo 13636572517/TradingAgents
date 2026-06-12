@@ -35,6 +35,18 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    command: celery -A server.celery_app beat --loglevel=info
+    restart: unless-stopped
+    env_file: .env.prod
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    depends_on:
+      - redis
+
 volumes:
   tradingagents_data:
   redis_data:

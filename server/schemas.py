@@ -64,3 +64,54 @@ class SettingsOut(BaseModel):
     output_cost_per_million: float = 0.0
 
     model_config = {"from_attributes": True}
+
+
+# ── Stock screener ───────────────────────────────────────────────────────────────
+
+class ScreeningRunCreate(BaseModel):
+    auto_analyze: bool = False         # auto-launch deep analysis on top candidates
+    auto_analyze_top: int = 3
+    depth: int = 1
+    params: Optional[Any] = None       # override DEFAULT_PARAMS in screener
+
+
+class ScreeningCandidateOut(BaseModel):
+    id: str
+    run_id: str
+    board_name: str
+    board_pe_pct: Optional[float]
+    board_pb_pct: Optional[float]
+    board_valuation_method: Optional[str]
+    ticker: str
+    ticker_name: Optional[str]
+    total_mktcap: Optional[float]
+    pe: Optional[float]
+    pb: Optional[float]
+    roe: Optional[float]
+    amount: Optional[float]
+    net_inflow: Optional[float]
+    rank_in_board: Optional[int]
+    score: Optional[float]
+    reason: Optional[str]
+    analysis_id: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ScreeningRunOut(BaseModel):
+    id: str
+    run_date: str
+    status: str
+    trigger: str
+    params: Optional[Any]
+    summary: Optional[Any]
+    error: Optional[str]
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class ScreeningRunDetailOut(ScreeningRunOut):
+    candidates: List[ScreeningCandidateOut] = []

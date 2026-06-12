@@ -179,3 +179,60 @@ export interface AdminUser {
   is_admin: boolean
   created_at: string
 }
+
+// ── Stock Screener ──────────────────────────────────────────────────────────────
+
+export interface ScreeningCandidate {
+  id: string
+  run_id: string
+  board_name: string
+  board_pe_pct: number | null
+  board_pb_pct: number | null
+  board_valuation_method: "historical" | "cross_section" | null
+  ticker: string
+  ticker_name: string | null
+  total_mktcap: number | null
+  pe: number | null
+  pb: number | null
+  roe: number | null
+  amount: number | null
+  net_inflow: number | null
+  rank_in_board: number | null
+  score: number | null
+  reason: string | null
+  analysis_id: string | null
+  created_at: string
+}
+
+export interface UndervaluedBoard {
+  name: string
+  pe: number | null
+  pb: number | null
+  pe_pct: number | null
+  pb_pct: number | null
+  valuation_method: "historical" | "cross_section"
+  pct_change: number | null
+  member_count: number | null
+}
+
+export interface ScreeningSummary {
+  boards_scanned?: number
+  undervalued_count?: number
+  candidate_count?: number
+  roe_available?: boolean
+  moneyflow_available?: boolean
+  undervalued_boards?: UndervaluedBoard[]
+}
+
+export interface ScreeningRun {
+  id: string
+  run_date: string
+  status: "running" | "complete" | "failed"
+  trigger: "manual" | "scheduled"
+  params: unknown | null
+  summary: ScreeningSummary | null
+  error: string | null
+  created_at: string
+  completed_at: string | null
+  candidates?: ScreeningCandidate[]
+}

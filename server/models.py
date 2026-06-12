@@ -108,6 +108,65 @@ class ModelPricing(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SectorSnapshot(Base):
+    """Daily valuation snapshot of one industry board — builds a self-time-series
+    so we can compute historical PE/PB percentiles over time."""
+    __tablename__ = "sector_snapshots"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    date         = Column(String(10), nullable=False, index=True)   # YYYY-MM-DD
+    board_name   = Column(String(50), nullable=False, index=True)
+    board_code   = Column(String(20))
+    pe           = Column(Float)        # median dynamic PE of constituents
+    pb           = Column(Float)        # median PB of constituents
+    total_mktcap = Column(Float)        # board total market cap (CNY)
+    pct_change   = Column(Float)        # board daily % change
+    turnover     = Column(Float)        # board turnover rate
+    member_count = Column(Integer)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class ScreeningRun(Base):
+    """One execution of the stock-screening pipeline."""
+    __tablename__ = "screening_runs"
+
+    id          = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_date    = Column(String(10), nullable=False, index=True)    # YYYY-MM-DD
+    status      = Column(String(20), default="running")             # running|complete|failed
+    trigger     = Column(String(20), default="manual")              # manual|scheduled
+    params      = Column(JSON)          # screening parameters snapshot
+    summary     = Column(JSON)          # {boards_scanned, undervalued_count, candidate_count, ...}
+    error       = Column(Text)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+    owner_id    = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+
+
+class ScreeningCandidate(Base):
+    """A leading stock picked from an undervalued sector during a screening run."""
+    __tablename__ = "screening_candidates"
+
+    id              = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    run_id          = Column(String(36), ForeignKey('screening_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    board_name      = Column(String(50), nullable=False)
+    board_pe_pct    = Column(Float)     # board PE percentile (0-100)
+    board_pb_pct    = Column(Float)     # board PB percentile (0-100)
+    board_valuation_method = Column(String(20))  # historical|cross_section
+    ticker          = Column(String(20), nullable=False)   # YF format e.g. 600519.SS
+    ticker_name     = Column(String(100))
+    total_mktcap    = Column(Float)
+    pe              = Column(Float)
+    pb              = Column(Float)
+    roe             = Column(Float)
+    amount          = Column(Float)     # 成交额 (liquidity)
+    net_inflow      = Column(Float)     # 主力净流入
+    rank_in_board   = Column(Integer)   # 1 = top leader
+    score           = Column(Float)     # composite leader score (0-100)
+    reason          = Column(Text)      # human-readable selection rationale
+    analysis_id     = Column(String(36), ForeignKey('analyses.id', ondelete='SET NULL'), nullable=True, index=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     """认证用户。密码以 bcrypt 哈希存储，不可逆。"""
     __tablename__ = "users"

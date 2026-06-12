@@ -538,3 +538,182 @@ def _strip_tool_call_prefix(text: str) -> str:
         flags=re.DOTALL,
     )
     return cleaned.strip() or text.strip()
+
+
+# ── Shared analysis launcher (used by API + screener) ───────────────────────────
+
+_DEFAULT_ANALYSTS = ["market", "social", "news", "fundamentals"]
+
+
+def launch_analysis(db, ticker: str, owner_id=None, depth: int = 1,
+                    analysts: list = None, trade_date: str = None):
+    """Create an Analysis record and dispatch run_analysis. Returns the record.
+
+    Mirrors the logic in routers/analyses.create_analysis so the screener can
+    trigger deep analyses programmatically.
+    """
+    from server.models import AppSettings
+
+    settings = db.get(AppSettings, 1)
+    llm_config = {
+        "provider":    settings.provider    if settings else "openai",
+        "api_key":     settings.api_key     if settings else None,
+        "deep_model":  settings.deep_model  if settings else "gpt-4o",
+        "quick_model": settings.quick_model if settings else "gpt-4o-mini",
+        "backend_url": settings.backend_url if settings else None,
+    } if settings else {}
+
+    ticker_name = None
+    try:
+        from tradingagents.dataflows.stock_name_lookup import get_stock_name
+        ticker_name = get_stock_name(ticker)
+    except Exception as e:
+        logger.debug("Stock name lookup failed for %s: %s", ticker, e)
+
+    record = Analysis(
+        ticker=ticker.upper(),
+        ticker_name=ticker_name,
+        trade_date=trade_date or datetime.now().strftime("%Y-%m-%d"),
+        analysts=_normalize_analysts(analysts or _DEFAULT_ANALYSTS),
+        depth=depth,
+        status="pending",
+        stage="pending",
+        seen=True,
+        llm_config=llm_config,
+        owner_id=owner_id,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    task = run_analysis.delay(record.id)
+    record.celery_task_id = task.id
+    db.commit()
+    return record
+
+
+# ── Stock screening tasks ───────────────────────────────────────────────────────
+
+@celery_app.task(bind=True, name="server.tasks.run_screening_task")
+def run_screening_task(self, run_id: str, auto_analyze: bool = False,
+                       auto_analyze_top: int = 3, depth: int = 1):
+    """Execute the screening pipeline for an existing ScreeningRun row.
+
+    Persists ScreeningCandidate rows, updates the run summary/status, and
+    optionally launches deep analyses for the top-scoring candidates.
+    """
+    import uuid
+    from server.models import ScreeningRun, ScreeningCandidate
+    from server.screener import run_screening
+
+    db = SessionLocal()
+    try:
+        run = db.get(ScreeningRun, run_id)
+        if not run:
+            logger.warning("run_screening_task: run %s not found", run_id)
+            return
+
+        try:
+            result = run_screening(db, params=run.params or None)
+        except Exception as e:
+            logger.error("run_screening_task failed: %s", e)
+            run.status = "failed"
+            run.error = str(e)
+            run.completed_at = datetime.utcnow()
+            db.commit()
+            return
+
+        candidates = result["candidates"]
+        # Persist candidates, ranked globally by score for auto-analysis ordering
+        candidates_sorted = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)
+        rows = []
+        for c in candidates:
+            row = ScreeningCandidate(
+                id=str(uuid.uuid4()),
+                run_id=run.id,
+                board_name=c["board_name"],
+                board_pe_pct=c.get("board_pe_pct"),
+                board_pb_pct=c.get("board_pb_pct"),
+                board_valuation_method=c.get("board_valuation_method"),
+                ticker=c["ticker"],
+                ticker_name=c.get("name"),
+                total_mktcap=c.get("total_mktcap"),
+                pe=c.get("pe"),
+                pb=c.get("pb"),
+                roe=c.get("roe"),
+                amount=c.get("amount"),
+                net_inflow=c.get("net_inflow"),
+                rank_in_board=c.get("rank_in_board"),
+                score=c.get("score"),
+                reason=c.get("reason"),
+            )
+            db.add(row)
+            rows.append(row)
+        db.commit()
+
+        run.status = "complete"
+        run.summary = {
+            **result["summary"],
+            "undervalued_boards": [
+                {
+                    "name": b["name"],
+                    "pe": b.get("pe"),
+                    "pb": b.get("pb"),
+                    "pe_pct": b.get("pe_pct"),
+                    "pb_pct": b.get("pb_pct"),
+                    "valuation_method": b.get("valuation_method"),
+                    "pct_change": b.get("pct_change"),
+                    "member_count": b.get("member_count"),
+                }
+                for b in result["undervalued"]
+            ],
+        }
+        run.completed_at = datetime.utcnow()
+        db.commit()
+
+        # Optionally auto-analyze the top-N candidates by score
+        if auto_analyze and candidates_sorted:
+            ticker_to_row = {r.ticker: r for r in rows}
+            launched_tickers = set()
+            for c in candidates_sorted[:auto_analyze_top]:
+                tk = c["ticker"]
+                if tk in launched_tickers:
+                    continue
+                launched_tickers.add(tk)
+                try:
+                    analysis = launch_analysis(db, tk, owner_id=run.owner_id, depth=depth)
+                    cand = ticker_to_row.get(tk)
+                    if cand:
+                        cand.analysis_id = analysis.id
+                    db.commit()
+                except Exception as e:
+                    logger.warning("auto-analyze failed for %s: %s", tk, e)
+                    db.rollback()
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, name="server.tasks.scheduled_daily_screening")
+def scheduled_daily_screening(self):
+    """Celery-beat entry point: create a scheduled ScreeningRun and execute it
+    with auto-analysis of the top candidates."""
+    import uuid
+    from server.models import ScreeningRun
+
+    db = SessionLocal()
+    try:
+        run = ScreeningRun(
+            id=str(uuid.uuid4()),
+            run_date=datetime.now().strftime("%Y-%m-%d"),
+            status="running",
+            trigger="scheduled",
+            params=None,
+            owner_id=None,
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+    finally:
+        db.close()
+
+    run_screening_task.apply(args=[run_id], kwargs={"auto_analyze": True, "auto_analyze_top": 3})
