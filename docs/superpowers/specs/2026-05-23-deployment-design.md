@@ -60,7 +60,7 @@ FLUSH PRIVILEGES;
 
 ```bash
 # 数据库
-DATABASE_URL=mysql+pymysql://gesp:mCZ@20260101@127.0.0.1:3306/tradingagents
+DATABASE_URL=mysql+pymysql://gesp:<DB_PASSWORD>@127.0.0.1:3306/tradingagents
 
 # Redis（容器内部网络）
 REDIS_URL=redis://redis:6379/0

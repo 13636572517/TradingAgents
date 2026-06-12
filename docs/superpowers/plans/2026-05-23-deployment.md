@@ -591,7 +591,7 @@ Docker Compose version v2.x.x
 - [ ] **Step 3: 在 MySQL 中创建 tradingagents 数据库**
 
 ```bash
-mysql -u gesp -p'mCZ@20260101' -h 127.0.0.1 -P 3306 <<'EOF'
+mysql -u gesp -p'<DB_PASSWORD>' -h 127.0.0.1 -P 3306 <<'EOF'
 CREATE DATABASE IF NOT EXISTS tradingagents CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 GRANT ALL PRIVILEGES ON tradingagents.* TO 'gesp'@'localhost';
 GRANT ALL PRIVILEGES ON tradingagents.* TO 'gesp'@'127.0.0.1';
@@ -625,7 +625,7 @@ echo "生成的 JWT_SECRET: $JWT_SECRET"
 
 # 用 sed 替换占位符
 sed -i "s|CHANGE_ME_GENERATE_WITH_openssl_rand_hex_32|$JWT_SECRET|" .env.prod
-sed -i "s|mysql+pymysql://YOUR_DB_USER:YOUR_DB_PASSWORD@127.0.0.1:3306/tradingagents|mysql+pymysql://gesp:mCZ@20260101@127.0.0.1:3306/tradingagents|" .env.prod
+sed -i "s|mysql+pymysql://YOUR_DB_USER:YOUR_DB_PASSWORD@127.0.0.1:3306/tradingagents|mysql+pymysql://gesp:<DB_PASSWORD>@127.0.0.1:3306/tradingagents|" .env.prod
 
 # 填入你的 LLM API Key（根据需要填写）
 nano .env.prod

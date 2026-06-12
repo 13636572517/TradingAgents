@@ -225,3 +225,7 @@ __marimo__/
 
 # Superpowers brainstorming sessions
 .superpowers/
+
+# Local deploy scripts with credentials — never commit
+deploy_via_ssh.py
+.env.prod

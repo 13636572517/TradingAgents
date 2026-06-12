@@ -2,6 +2,7 @@
 """Remote deploy via paramiko SSH.
 Usage: python scripts/remote_deploy.py
 """
+import os
 import sys
 import time
 import paramiko
@@ -9,6 +10,9 @@ from pathlib import Path
 
 HOST = "47.103.133.232"
 USER = "admin"
+# Never hardcode credentials. Export DEPLOY_SSH_PASSWORD before running, or
+# rely on key-based auth via KEY_PATH.
+SSH_PASSWORD = os.getenv("DEPLOY_SSH_PASSWORD")
 KEY_PATH = str(Path.home() / ".ssh" / "id_ed25519")
 REMOTE_APP_DIR = "/root/TradingAgents"   # adjust if different on server
 
@@ -42,7 +46,7 @@ def main():
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     print(f"Connecting to {USER}@{HOST} ...")
-    client.connect(HOST, username=USER, password="mCZ@20260101", timeout=15)
+    client.connect(HOST, username=USER, password=SSH_PASSWORD, timeout=15)
 
     print("Connected.")
 
@@ -176,7 +180,7 @@ def _rsync_and_build(client: paramiko.SSHClient) -> int:
 def check_logs(lines: int = 80):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password="mCZ@20260101", timeout=15)
+    client.connect(HOST, username=USER, password=SSH_PASSWORD, timeout=15)
     run(client, f"docker compose -f /opt/tradingagents/docker-compose.prod.yml "
                 f"logs --no-color --tail={lines} server", timeout=30)
     client.close()
