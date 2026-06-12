@@ -507,8 +507,8 @@ def _post(path: str, body: dict):
 def tf_batch_quotes(symbols: list[str]) -> dict:
     """Batch real-time quotes for multiple tickers (Yahoo Finance format).
 
-    Returns dict keyed by 6-digit code: {code: {last_price, prev_close, ...}}
-    Splits into chunks of 100 to avoid URL / request size limits.
+    **Warning**: TickFlow limits `symbols` to 5 per request. For whole-market
+    snapshots use :func:`tf_universe_quotes` instead.
     """
     if not symbols:
         return {}
@@ -519,6 +519,51 @@ def tf_batch_quotes(symbols: list[str]) -> dict:
         sym = item.get("symbol", "")
         yf_code = _from_tf_code(sym)
         six = yf_code.split(".")[0]  # 6-digit code
+        ext = item.get("ext") or {}
+        out[six] = {
+            "code": six,
+            "name": ext.get("name", ""),
+            "price": item.get("last_price"),
+            "pct_change": ext.get("change_pct"),
+            "amount": item.get("amount"),
+            "volume": item.get("volume"),
+            "turnover": ext.get("turnover_rate"),
+            "prev_close": item.get("prev_close"),
+            "open": item.get("open"),
+            "high": item.get("high"),
+            "low": item.get("low"),
+        }
+    return out
+
+
+def tf_universe_quotes(universe_ids: list[str]) -> dict:
+    """Fetch real-time quotes for an entire universe (标的池) in a **single request**.
+
+    This is the recommended approach for whole-market snapshots — it avoids
+    the 5-symbol limit of the `symbols` batch endpoint.
+
+    Parameters
+    ----------
+    universe_ids : list[str]
+        TickFlow universe IDs, e.g. ``["CN_Equity_A"]``.
+
+    Returns
+    -------
+    dict
+        Keyed by 6-digit code (e.g. ``"600519"``) with the same fields as
+        :func:`tf_batch_quotes`.
+    """
+    if not universe_ids:
+        return {}
+    resp = _post("quotes", {"universes": universe_ids})
+    out: dict[str, dict] = {}
+    for item in resp.get("data", []):
+        sym = item.get("symbol", "")
+        parts = sym.split(".")
+        if len(parts) == 2:
+            six = parts[0].zfill(6)
+        else:
+            six = sym.zfill(6)
         ext = item.get("ext") or {}
         out[six] = {
             "code": six,

@@ -265,23 +265,46 @@ def _build_reason(board: dict, r: dict) -> str:
 
 # ── Orchestration ───────────────────────────────────────────────────────────────────
 
-def run_screening(db: Session, params: Optional[dict] = None) -> dict:
+def run_screening(db: Session, params: Optional[dict] = None,
+                  progress: Optional[callable] = None) -> dict:
     """Execute the full screening pipeline. Returns a dict:
        {run_date, params, board_valuations, undervalued, candidates, summary}
     Does NOT persist a ScreeningRun row — callers (router/task) handle persistence.
+
+    Parameters
+    ----------
+    progress : callable[str, None], optional
+        If provided, called with human-readable progress messages that the
+        caller can persist to the ScreeningRun for frontend visibility.
     """
+    def _p(msg: str):
+        if progress:
+            progress(msg)
+        logger.info("[screener] %s", msg)
+
     p = {**DEFAULT_PARAMS, **(params or {})}
     run_date = datetime.now().strftime("%Y-%m-%d")
 
+    _p("Step 1/5 — 获取全市场行情快照…")
     spot = sd.get_market_spot()
     if not spot:
-        raise RuntimeError("全市场行情快照获取失败 (akshare stock_zh_a_spot_em)")
+        raise RuntimeError(
+            "全市场行情快照获取失败 — TickFlow / AkShare / JoinQuant 均不可用。"
+            "请确认 TickFlow API Key 已配置且可连通。"
+        )
+    _p(f"Step 1/5 — 行情快照获取完成（{len(spot)} 只股票）")
 
+    _p("Step 2/5 — 扫描行业板块估值…")
     board_vals = compute_board_valuations(spot)
+    _p(f"Step 2/5 — 扫描完成，共 {len(board_vals)} 个板块")
+
     persist_snapshots(db, run_date, board_vals)
 
+    _p("Step 3/5 — 筛选低估板块…")
     undervalued = select_undervalued_boards(db, run_date, board_vals, p)
+    _p(f"Step 3/5 — 找到 {len(undervalued)} 个低估板块")
 
+    _p("Step 4/5 — 计算各板块龙头评分…")
     roe_map = sd.get_roe_map()
     flow_map = sd.get_moneyflow_map()
 
@@ -296,6 +319,7 @@ def run_screening(db: Session, params: Optional[dict] = None) -> dict:
                 "board_valuation_method": board.get("valuation_method"),
                 **ld,
             })
+    _p(f"Step 4/5 — 龙头评分完成，共 {len(candidates)} 只候选股")
 
     summary = {
         "boards_scanned": len(board_vals),

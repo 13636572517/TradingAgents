@@ -3,15 +3,15 @@
 The screener needs three bulk feeds:
   1. Industry board list      — sector/industry universes from TickFlow
   2. Board constituents       — symbols inside each universe from TickFlow
-  3. Whole-market spot snapshot — real-time quotes from TickFlow (batch, paginated)
+  3. Whole-market spot snapshot — real-time quotes from TickFlow (1 request via universes)
 
 TickFlow is a RESTful authenticated API (no IP rate-limit), making it stable
 for server-side batch jobs.  The provider chain falls back to akshare and
 then JoinQuant when TickFlow is unavailable.
 
-  - Industry board list   : TickFlow  /v1/universes  → akshare  →  JoinQuant
+  - Industry board list   : TickFlow  /v1/universes  → akshare
   - Board constituents    : TickFlow  /v1/universes/{id}  →  akshare
-  - Whole-market spot      : TickFlow  POST /v1/quotes  (batch, 100 per page)
+  - Whole-market spot      : TickFlow  POST /v1/quotes with ``universes=["CN_Equity_A"]``
   - ROE map (optional)    : ak.stock_yjbb_em(date)    best-effort, AkShare
   - Money-flow (optional) : ak.stock_individual_fund_flow_rank  best-effort
 
@@ -21,8 +21,6 @@ Ticker format: results expose Yahoo-Finance style tickers
 from __future__ import annotations
 
 import logging
-import math
-import random
 import threading
 import time
 from datetime import datetime
@@ -142,6 +140,9 @@ def get_industry_boards(ttl: float = 600) -> list[dict]:
     """Return list of A-share industry boards.
 
     Each dict: {name, code, price, pct_change, total_mktcap, turnover, up, down}
+
+    Provider chain mirrors interface.py routing:
+      tickflow → akshare  (mairui/baostock/joinquant/futu don't support board lists)
     """
     cached = _cache_get("industry_boards", ttl)
     if cached is not None:
@@ -253,9 +254,7 @@ def _cons_akshare_em(board_name: str) -> list[str]:
     return [str(c).strip().zfill(6) for c in df.get("代码", []) if str(c).strip()]
 
 
-# ── Whole-market spot snapshot (TickFlow batch → AkShare-EM → JoinQuant) ───────
-
-_BATCH_SIZE = 100  # TickFlow batch quote page size
+# ── Whole-market spot snapshot (TickFlow universe → AkShare-EM → JoinQuant) ────
 
 
 def get_market_spot(ttl: float = 600):
@@ -264,9 +263,9 @@ def get_market_spot(ttl: float = 600):
     value: {code, name, price, pct_change, amount, pe, pb, total_mktcap, float_mktcap, turnover}
     `amount` = 成交额 (CNY, liquidity proxy); `pe` = 市盈率-动态; `pb` = 市净率.
 
-    Provider chain: TickFlow (batch, paginated) → AkShare(EM) → JoinQuant valuation.
-    TickFlow is the genuinely independent primary source: authenticated REST API,
-    no IP rate-limit, supports batch quotes of up to 100 symbols per request.
+    Provider chain: TickFlow (universe-based, 1 request) → AkShare(EM) → JoinQuant.
+    TickFlow's ``POST /v1/quotes`` with ``universes`` param fetches the entire
+    CN_Equity_A pool in a single API call — no pagination needed.
     """
     cached = _cache_get("market_spot", ttl)
     if cached is not None:
@@ -282,67 +281,20 @@ def get_market_spot(ttl: float = 600):
 
 
 def _spot_tickflow() -> dict:
-    """Whole-market snapshot via TickFlow batch real-time quotes.
+    """Whole-market snapshot via TickFlow universe-based quotes.
 
-    Fetches all A-share symbols from the CN_Equity_A universe, then batch-queries
-    real-time quotes in pages of _BATCH_SIZE (100 per page) to avoid oversized
-    requests. Returns dict keyed by 6-digit code.
+    Uses ``POST /v1/quotes`` with ``universes=["CN_Equity_A"]`` to fetch
+    all ~5,500 A-shares in a **single request** (no pagination, no rate-limit).
+    Returns dict keyed by 6-digit code.
     """
-    from tradingagents.dataflows.tickflow_data import (
-        tf_universe_detail,
-        tf_batch_quotes,
-    )
+    from tradingagents.dataflows.tickflow_data import tf_universe_quotes
 
-    # Step 1: get all A-share symbols from the universe
-    detail = tf_universe_detail("CN_Equity_A")
-    all_symbols = detail.get("symbols", []) if detail else []
-    if not all_symbols:
-        return {}
-
-    # Step 2: batch-quote in pages of 100
-    out: dict[str, dict] = {}
-    pages = math.ceil(len(all_symbols) / _BATCH_SIZE)
-    logger.info("_spot_tickflow: %d symbols in %d pages of %d",
-                len(all_symbols), pages, _BATCH_SIZE)
-
-    for page_idx in range(pages):
-        chunk = all_symbols[page_idx * _BATCH_SIZE:(page_idx + 1) * _BATCH_SIZE]
-        # Convert TickFlow symbols (600000.SH) to Yahoo Finance format (600000.SS)
-        yf_symbols = []
-        for tf_sym in chunk:
-            parts = tf_sym.split(".")
-            if len(parts) == 2:
-                code, exchange = parts
-                if exchange == "SH":
-                    yf_symbols.append(f"{code}.SS")
-                elif exchange == "SZ":
-                    yf_symbols.append(f"{code}.SZ")
-                elif exchange == "BJ":
-                    yf_symbols.append(f"{code}.BJ")
-                else:
-                    yf_symbols.append(code)
-            else:
-                yf_symbols.append(tf_sym)
-
-        try:
-            quotes = tf_batch_quotes(yf_symbols)
-        except Exception as e:
-            logger.warning("_spot_tickflow page %d failed: %s — skipping", page_idx, e)
-            continue
-
-        out.update(quotes)
-        # Small sleep between pages to avoid rate-limiting
-        if page_idx < pages - 1:
-            time.sleep(random.uniform(0.3, 0.8))
-
-    # Reject obviously incomplete results so we fall back properly
-    total_expected = len(all_symbols)
-    if total_expected and len(out) < total_expected * 0.5:
-        logger.warning("_spot_tickflow: only %d/%d symbols returned — treating as incomplete",
-                       len(out), total_expected)
-        return {}
-
-    logger.info("_spot_tickflow: %d symbols fetched", len(out))
+    logger.info("_spot_tickflow: fetching CN_Equity_A universe via single request…")
+    out = tf_universe_quotes(["CN_Equity_A"])
+    if out:
+        logger.info("_spot_tickflow: %d symbols fetched", len(out))
+    else:
+        logger.warning("_spot_tickflow: returned empty — universe may not exist or API issue")
     return out
 
 

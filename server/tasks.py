@@ -601,6 +601,9 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
 
     Persists ScreeningCandidate rows, updates the run summary/status, and
     optionally launches deep analyses for the top-scoring candidates.
+
+    Progress is written to ScreeningRun.error as human-readable step messages,
+    visible on the frontend via the polling GET /screener/runs/{id} endpoint.
     """
     import uuid
     from server.models import ScreeningRun, ScreeningCandidate
@@ -613,8 +616,15 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             logger.warning("run_screening_task: run %s not found", run_id)
             return
 
+        def _progress(msg: str):
+            """Write progress message to DB so frontend can poll it."""
+            run.error = msg
+            db.commit()
+            logger.info("[screening %s] %s", run_id, msg)
+
+        _progress("正在获取全市场行情快照（TickFlow → AkShare → JoinQuant）…")
         try:
-            result = run_screening(db, params=run.params or None)
+            result = run_screening(db, params=run.params or None, progress=_progress)
         except Exception as e:
             logger.error("run_screening_task failed: %s", e)
             run.status = "failed"
@@ -623,6 +633,7 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             db.commit()
             return
 
+        _progress("正在持久化候选股并更新筛选记录…")
         candidates = result["candidates"]
         # Persist candidates, ranked globally by score for auto-analysis ordering
         candidates_sorted = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)
@@ -669,7 +680,10 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             ],
         }
         run.completed_at = datetime.utcnow()
+        run.error = None  # Clear progress messages on success
         db.commit()
+
+        _progress(f"筛选完成！{len(result['summary'].get('undervalued_count', 0))} 个低估板块，{len(candidates)} 只候选股")
 
         # Optionally auto-analyze the top-N candidates by score
         if auto_analyze and candidates_sorted:
