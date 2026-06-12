@@ -68,6 +68,15 @@ from .mairui_data import (
     get_mr_indicators,
     get_mr_fundamentals,
 )
+from .tickflow_data import (
+    TickFlowError,
+    get_tf_stock_data,
+    get_tf_indicators,
+    get_tf_fundamentals,
+    get_tf_balance_sheet,
+    get_tf_income_statement,
+    get_tf_cashflow,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -112,6 +121,7 @@ VENDOR_LIST = [
     "futu",
     "joinquant",
     "baostock",
+    "tickflow",
 ]
 
 # Mapping of methods to their vendor-specific implementations.
@@ -122,6 +132,7 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "mairui": get_mr_stock_data,       # CN primary (stable, current)
         "baostock": get_bs_stock_data,     # CN fallback (free, full history)
+        "tickflow": get_tf_stock_data,     # CN REST API (authenticated, no IP rate-limit)
         "joinquant": get_jq_stock_data,    # CN historical
         "akshare": get_cn_stock_data,      # CN general
         "futu": get_futu_stock_data,       # HK/US via OpenD
@@ -132,6 +143,7 @@ VENDOR_METHODS = {
     "get_indicators": {
         "mairui": get_mr_indicators,       # CN primary
         "baostock": get_bs_indicators,     # CN fallback
+        "tickflow": get_tf_indicators,     # CN REST API (authenticated)
         "joinquant": get_jq_indicators,    # CN historical
         "akshare": get_cn_indicators,      # CN general
         "yfinance": get_stock_stats_indicators_window,
@@ -140,6 +152,7 @@ VENDOR_METHODS = {
     # fundamental_data
     "get_fundamentals": {
         "mairui": get_mr_fundamentals,     # CN snapshot
+        "tickflow": get_tf_fundamentals,   # CN REST API (real-time quote + metrics)
         "joinquant": get_jq_fundamentals,  # CN detailed (historical range)
         "baostock": get_bs_fundamentals,   # CN fallback
         "akshare": get_cn_fundamentals,    # CN general
@@ -148,6 +161,7 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_fundamentals,  # last resort
     },
     "get_balance_sheet": {
+        "tickflow": get_tf_balance_sheet,  # CN REST API (quarterly statements)
         "joinquant": get_jq_balance_sheet, # CN detailed financial statements
         "baostock": get_bs_balance_sheet,
         "akshare": get_cn_balance_sheet,
@@ -156,6 +170,7 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
     },
     "get_cashflow": {
+        "tickflow": get_tf_cashflow,       # CN REST API
         "joinquant": get_jq_cashflow,
         "baostock": get_bs_cashflow,
         "akshare": get_cn_cashflow,
@@ -164,6 +179,7 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_cashflow,
     },
     "get_income_statement": {
+        "tickflow": get_tf_income_statement,  # CN REST API
         "joinquant": get_jq_income_statement,
         "baostock": get_bs_income_statement,
         "akshare": get_cn_income_statement,

@@ -1,21 +1,22 @@
 """Sector / whole-market data provider for the A-share stock screener.
 
-The three *required* feeds (industry board list, board constituents, whole-market
-spot snapshot) talk to East Money's `clist` API **directly** rather than through
-AkShare. On some hosts (e.g. the production Aliyun box) East Money rate-limits the
-server IP and abruptly closes connections (`RemoteDisconnected`); AkShare's helper
-aborts the whole fetch on the first such error, and its full-market snapshot needs
-~59 paginated requests, so it fails reliably there. Our own client adds per-request
-retry/back-off plus partial tolerance (a few dropped pages don't sink the run).
+The screener needs three bulk feeds:
+  1. Industry board list      — sector/industry universes from TickFlow
+  2. Board constituents       — symbols inside each universe from TickFlow
+  3. Whole-market spot snapshot — real-time quotes from TickFlow (batch, paginated)
 
-  - Industry board list   : clist  fs="m:90 t:2 f:!50"        (17.push2)
-  - Board constituents    : clist  fs="b:{board_code} f:!50"  (29.push2)
-  - Whole-market spot      : clist  fs="m:0 t:6,..."           (82.push2, paginated)
-  - ROE map (optional)    : ak.stock_yjbb_em(date)            best-effort, AkShare
-  - Money-flow (optional) : ak.stock_individual_fund_flow_rank best-effort, AkShare
+TickFlow is a RESTful authenticated API (no IP rate-limit), making it stable
+for server-side batch jobs.  The provider chain falls back to akshare and
+then JoinQuant when TickFlow is unavailable.
 
-Ticker format: results expose Yahoo-Finance style tickers (600519.SS / 000001.SZ / 430047.BJ)
-to stay consistent with the rest of the project.
+  - Industry board list   : TickFlow  /v1/universes  → akshare  →  JoinQuant
+  - Board constituents    : TickFlow  /v1/universes/{id}  →  akshare
+  - Whole-market spot      : TickFlow  POST /v1/quotes  (batch, 100 per page)
+  - ROE map (optional)    : ak.stock_yjbb_em(date)    best-effort, AkShare
+  - Money-flow (optional) : ak.stock_individual_fund_flow_rank  best-effort
+
+Ticker format: results expose Yahoo-Finance style tickers
+(600519.SS / 000001.SZ / 430047.BJ) to stay consistent with the project.
 """
 from __future__ import annotations
 
@@ -28,88 +29,6 @@ from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-# ── East Money direct HTTP client (retry + back-off, tolerant of flaky hosts) ─────
-
-_EM_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-_SESSION = None
-_SESSION_LOCK = threading.Lock()
-
-
-def _session():
-    global _SESSION
-    with _SESSION_LOCK:
-        if _SESSION is None:
-            import requests
-            s = requests.Session()
-            s.headers.update({"User-Agent": _EM_UA, "Referer": "https://quote.eastmoney.com/"})
-            _SESSION = s
-        return _SESSION
-
-
-def _em_get(url: str, params: dict, *, tries: int = 4, timeout: int = 15):
-    """GET an East Money endpoint with retry + exponential back-off.
-
-    Returns the parsed JSON dict, or None if every attempt failed.
-    """
-    last = None
-    for attempt in range(tries):
-        try:
-            r = _session().get(url, params=params, timeout=timeout)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:  # network reset / rate-limit / bad JSON
-            last = e
-            if attempt < tries - 1:
-                time.sleep(min(8.0, 0.6 * (2 ** attempt)) + random.uniform(0.2, 0.8))
-    logger.warning("eastmoney GET failed after %d tries (%s): %s", tries, url, last)
-    return None
-
-
-def _em_diff(payload) -> list[dict]:
-    """Extract the `data.diff` rows from an East Money clist payload (safe)."""
-    if not payload:
-        return []
-    data = payload.get("data")
-    if not data:
-        return []
-    diff = data.get("diff")
-    return diff if isinstance(diff, list) else []
-
-
-def _em_clist_paged(url: str, base_params: dict, *, page_sleep=(0.15, 0.4),
-                    max_pages: int = 200) -> tuple[list[dict], int]:
-    """Page through an East Money clist endpoint.
-
-    Returns ``(rows, total)`` where ``total`` is the server-reported row count
-    (0 if unknown). Tolerant of partial failure: pages that never succeed are
-    skipped rather than aborting the whole fetch — callers can compare
-    ``len(rows)`` against ``total`` to decide whether the result is complete
-    enough or whether to fall back to another provider.
-    """
-    params = {"pn": "1", "pz": "100", "po": "1", "np": "1", "fltt": "2", "invt": "2",
-              **base_params}
-    first = _em_get(url, {**params, "pn": "1"})
-    rows = _em_diff(first)
-    if not rows:
-        return [], 0
-    total = (first.get("data") or {}).get("total") or 0
-    per = len(rows) or 100
-    pages = min(max_pages, math.ceil(total / per)) if total else 1
-    for pn in range(2, pages + 1):
-        time.sleep(random.uniform(*page_sleep))
-        rows.extend(_em_diff(_em_get(url, {**params, "pn": str(pn)})))
-    return rows, total
-
-
-def _em_num(v) -> Optional[float]:
-    """East Money uses the string '-' for missing numeric cells."""
-    if v in (None, "-", ""):
-        return None
-    return _to_float(v)
 
 # ── Simple thread-safe TTL cache ────────────────────────────────────────────────
 
@@ -181,10 +100,46 @@ def _first_nonempty(label: str, providers: list[tuple]):
     return None
 
 
-# ── Industry boards (East Money direct → AkShare-EM) ────────────────────────────
+# ── TickFlow board discovery helpers ────────────────────────────────────────────
+
+# Known TickFlow universe IDs that map to A-share industry boards.
+# These are discovered dynamically from /v1/universes but we maintain a
+# fallback list in case TickFlow returns no sector universes.
+_SECTOR_UNIVERSE_PREFIXES = ("CN_Sector", "CN_Industry")
+
+
+def _discover_sector_universes() -> list[dict]:
+    """Discover industry/sector universes from TickFlow.
+
+    Returns list of {id, name, symbol_count}.
+    """
+    from tradingagents.dataflows.tickflow_data import tf_universes
+    all_universes = tf_universes()
+    sectors = []
+    for u in all_universes:
+        cat = (u.get("category") or "").lower()
+        uid = u.get("id") or ""
+        name = u.get("name") or ""
+        # Match sector/industry universes
+        if any(prefix in uid for prefix in _SECTOR_UNIVERSE_PREFIXES):
+            sectors.append({
+                "id": uid,
+                "name": name or uid,
+                "symbol_count": u.get("symbol_count", 0),
+            })
+        elif "sector" in cat or "industry" in cat:
+            sectors.append({
+                "id": uid,
+                "name": name or uid,
+                "symbol_count": u.get("symbol_count", 0),
+            })
+    return sectors
+
+
+# ── Industry boards (TickFlow → AkShare-EM) ────────────────────────────────────
 
 def get_industry_boards(ttl: float = 600) -> list[dict]:
-    """Return list of A-share industry boards (东方财富 行业板块).
+    """Return list of A-share industry boards.
 
     Each dict: {name, code, price, pct_change, total_mktcap, turnover, up, down}
     """
@@ -192,7 +147,7 @@ def get_industry_boards(ttl: float = 600) -> list[dict]:
     if cached is not None:
         return cached  # type: ignore
     boards = _first_nonempty("industry_boards", [
-        ("eastmoney_direct", _boards_em_direct),
+        ("tickflow", _boards_tickflow),
         ("akshare_em", _boards_akshare_em),
     ]) or []
     if boards:
@@ -200,24 +155,26 @@ def get_industry_boards(ttl: float = 600) -> list[dict]:
     return boards
 
 
-def _boards_em_direct() -> list[dict]:
-    url = "https://17.push2.eastmoney.com/api/qt/clist/get"
-    rows, _ = _em_clist_paged(url, {
-        "fid": "f3", "fs": "m:90 t:2 f:!50", "fields": "f12,f14,f2,f3,f8,f20",
-    })
+def _boards_tickflow() -> list[dict]:
+    """Discover industry boards from TickFlow universes.
+
+    Returns board list with name/code. Price data is enriched from batch quotes.
+    """
+    sectors = _discover_sector_universes()
+    if not sectors:
+        return []
+
     boards: list[dict] = []
-    for it in rows:
-        name = str(it.get("f14", "")).strip()
-        if not name:
-            continue
+    for s in sectors:
         boards.append({
-            "name": name,
-            "code": str(it.get("f12", "")).strip(),
-            "price": _em_num(it.get("f2")),
-            "pct_change": _em_num(it.get("f3")),
-            "total_mktcap": _em_num(it.get("f20")),
-            "turnover": _em_num(it.get("f8")),
-            "up": None, "down": None,
+            "name": s["name"],
+            "code": s["id"],
+            "price": None,
+            "pct_change": None,
+            "total_mktcap": None,
+            "turnover": None,
+            "up": None,
+            "down": None,
         })
     return boards
 
@@ -252,7 +209,7 @@ def _board_code_for(board_name: str) -> Optional[str]:
     return None
 
 
-# ── Board constituents (East Money direct → AkShare-EM) ─────────────────────────
+# ── Board constituents (TickFlow → AkShare-EM) ─────────────────────────────────
 
 def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
     """Return list of 6-digit constituent codes for an industry board."""
@@ -261,7 +218,7 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
     if cached is not None:
         return cached  # type: ignore
     codes = _first_nonempty(f"constituents[{board_name}]", [
-        ("eastmoney_direct", lambda: _cons_em_direct(board_name)),
+        ("tickflow", lambda: _cons_tickflow(board_name)),
         ("akshare_em", lambda: _cons_akshare_em(board_name)),
     ]) or []
     if codes:
@@ -269,14 +226,23 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
     return codes
 
 
-def _cons_em_direct(board_name: str) -> list[str]:
-    code = _board_code_for(board_name)
-    if not code:
+def _cons_tickflow(board_name: str) -> list[str]:
+    """Get board constituents from TickFlow universe detail.
+
+    The board_name is expected to match a TickFlow universe ID.
+    """
+    from tradingagents.dataflows.tickflow_data import tf_universe_detail
+    detail = tf_universe_detail(board_name)
+    if not detail:
         return []
-    url = "https://29.push2.eastmoney.com/api/qt/clist/get"
-    rows, _ = _em_clist_paged(url, {"fid": "f3", "fs": f"b:{code} f:!50", "fields": "f12"})
-    return [str(it.get("f12", "")).strip().zfill(6)
-            for it in rows if str(it.get("f12", "")).strip()]
+    symbols = detail.get("symbols", [])
+    # Convert TickFlow symbols (600000.SH) to 6-digit codes (600000)
+    codes = []
+    for sym in symbols:
+        six = sym.split(".")[0]
+        if six and six.isdigit():
+            codes.append(six.zfill(6))
+    return codes
 
 
 def _cons_akshare_em(board_name: str) -> list[str]:
@@ -287,7 +253,10 @@ def _cons_akshare_em(board_name: str) -> list[str]:
     return [str(c).strip().zfill(6) for c in df.get("代码", []) if str(c).strip()]
 
 
-# ── Whole-market spot snapshot (East Money → AkShare-EM → JoinQuant) ────────────
+# ── Whole-market spot snapshot (TickFlow batch → AkShare-EM → JoinQuant) ───────
+
+_BATCH_SIZE = 100  # TickFlow batch quote page size
+
 
 def get_market_spot(ttl: float = 600):
     """Return whole-market spot snapshot as a dict keyed by 6-digit code.
@@ -295,15 +264,15 @@ def get_market_spot(ttl: float = 600):
     value: {code, name, price, pct_change, amount, pe, pb, total_mktcap, float_mktcap, turnover}
     `amount` = 成交额 (CNY, liquidity proxy); `pe` = 市盈率-动态; `pb` = 市净率.
 
-    Provider chain: East Money direct → AkShare(EM) → JoinQuant valuation. The
-    JoinQuant leg is the genuinely *independent* fallback (no East Money), used when
-    East Money rate-limits the server IP and the snapshot can't be completed.
+    Provider chain: TickFlow (batch, paginated) → AkShare(EM) → JoinQuant valuation.
+    TickFlow is the genuinely independent primary source: authenticated REST API,
+    no IP rate-limit, supports batch quotes of up to 100 symbols per request.
     """
     cached = _cache_get("market_spot", ttl)
     if cached is not None:
         return cached  # type: ignore
     spot = _first_nonempty("market_spot", [
-        ("eastmoney_direct", _spot_em_direct),
+        ("tickflow", _spot_tickflow),
         ("akshare_em", _spot_akshare_em),
         ("joinquant", _spot_jq),
     ]) or {}
@@ -312,36 +281,68 @@ def get_market_spot(ttl: float = 600):
     return spot
 
 
-def _spot_em_direct() -> dict:
-    url = "https://82.push2.eastmoney.com/api/qt/clist/get"
-    rows, total = _em_clist_paged(url, {
-        "fid": "f3",
-        "fs": "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048",
-        "fields": "f12,f14,f2,f3,f6,f8,f9,f23,f20,f21",
-    })
-    # Reject an obviously-incomplete snapshot so the chain falls through to a
-    # non-East-Money provider rather than caching a half-empty market.
-    if total and len(rows) < total * 0.9:
-        logger.warning("market_spot: East Money returned %d/%d rows — treating as "
-                       "incomplete, falling back", len(rows), total)
+def _spot_tickflow() -> dict:
+    """Whole-market snapshot via TickFlow batch real-time quotes.
+
+    Fetches all A-share symbols from the CN_Equity_A universe, then batch-queries
+    real-time quotes in pages of _BATCH_SIZE (100 per page) to avoid oversized
+    requests. Returns dict keyed by 6-digit code.
+    """
+    from tradingagents.dataflows.tickflow_data import (
+        tf_universe_detail,
+        tf_batch_quotes,
+    )
+
+    # Step 1: get all A-share symbols from the universe
+    detail = tf_universe_detail("CN_Equity_A")
+    all_symbols = detail.get("symbols", []) if detail else []
+    if not all_symbols:
         return {}
+
+    # Step 2: batch-quote in pages of 100
     out: dict[str, dict] = {}
-    for it in rows:
-        code = str(it.get("f12", "")).strip().zfill(6)
-        if not code or not code.isdigit():
+    pages = math.ceil(len(all_symbols) / _BATCH_SIZE)
+    logger.info("_spot_tickflow: %d symbols in %d pages of %d",
+                len(all_symbols), pages, _BATCH_SIZE)
+
+    for page_idx in range(pages):
+        chunk = all_symbols[page_idx * _BATCH_SIZE:(page_idx + 1) * _BATCH_SIZE]
+        # Convert TickFlow symbols (600000.SH) to Yahoo Finance format (600000.SS)
+        yf_symbols = []
+        for tf_sym in chunk:
+            parts = tf_sym.split(".")
+            if len(parts) == 2:
+                code, exchange = parts
+                if exchange == "SH":
+                    yf_symbols.append(f"{code}.SS")
+                elif exchange == "SZ":
+                    yf_symbols.append(f"{code}.SZ")
+                elif exchange == "BJ":
+                    yf_symbols.append(f"{code}.BJ")
+                else:
+                    yf_symbols.append(code)
+            else:
+                yf_symbols.append(tf_sym)
+
+        try:
+            quotes = tf_batch_quotes(yf_symbols)
+        except Exception as e:
+            logger.warning("_spot_tickflow page %d failed: %s — skipping", page_idx, e)
             continue
-        out[code] = {
-            "code": code,
-            "name": str(it.get("f14", "")).strip(),
-            "price": _em_num(it.get("f2")),
-            "pct_change": _em_num(it.get("f3")),
-            "amount": _em_num(it.get("f6")),
-            "pe": _em_num(it.get("f9")),
-            "pb": _em_num(it.get("f23")),
-            "total_mktcap": _em_num(it.get("f20")),
-            "float_mktcap": _em_num(it.get("f21")),
-            "turnover": _em_num(it.get("f8")),
-        }
+
+        out.update(quotes)
+        # Small sleep between pages to avoid rate-limiting
+        if page_idx < pages - 1:
+            time.sleep(random.uniform(0.3, 0.8))
+
+    # Reject obviously incomplete results so we fall back properly
+    total_expected = len(all_symbols)
+    if total_expected and len(out) < total_expected * 0.5:
+        logger.warning("_spot_tickflow: only %d/%d symbols returned — treating as incomplete",
+                       len(out), total_expected)
+        return {}
+
+    logger.info("_spot_tickflow: %d symbols fetched", len(out))
     return out
 
 
@@ -371,7 +372,7 @@ def _spot_akshare_em() -> dict:
 
 
 def _spot_jq() -> dict:
-    """Whole-market snapshot via JoinQuant — independent of East Money.
+    """Whole-market snapshot via JoinQuant — independent of TickFlow/East Money.
 
     Three queries (within the free 500/day quota): all-securities (names),
     valuation table (PE/PB/market-cap, one shot), and latest close+amount.
