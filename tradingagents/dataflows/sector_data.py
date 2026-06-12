@@ -100,38 +100,39 @@ def _first_nonempty(label: str, providers: list[tuple]):
 
 # ── TickFlow board discovery helpers ────────────────────────────────────────────
 
-# Known TickFlow universe IDs that map to A-share industry boards.
-# These are discovered dynamically from /v1/universes but we maintain a
-# fallback list in case TickFlow returns no sector universes.
-_SECTOR_UNIVERSE_PREFIXES = ("CN_Sector", "CN_Industry")
+# TickFlow exposes 申万 (Shenwan) industry classifications as universes under the
+# CN_Equity_SW1_* prefix. Despite the "SW1" (一级) label there are ~335 such pools:
+# each 申万一级 industry is split into many fragment pools that share the same name
+# (e.g. "SW1基础化工" appears 33×). We therefore GROUP fragments by name into ~31
+# real 一级 boards and union their constituents. ``_TF_BOARD_IDS`` caches the
+# name→[universe ids] mapping so constituent lookups know which fragments to merge.
+_SECTOR_UNIVERSE_PREFIX = "CN_Equity_SW1_"
+_TF_BOARD_IDS: dict[str, list[str]] = {}
 
 
 def _discover_sector_universes() -> list[dict]:
-    """Discover industry/sector universes from TickFlow.
+    """Discover 申万一级 industry boards from TickFlow, merging same-name fragments.
 
-    Returns list of {id, name, symbol_count}.
+    Returns list of {name, ids, symbol_count}; also refreshes ``_TF_BOARD_IDS``.
+    ``name`` has the "SW1" tag stripped (universe "SW1家用电器" → board "家用电器").
     """
     from tradingagents.dataflows.tickflow_data import tf_universes
-    all_universes = tf_universes()
-    sectors = []
-    for u in all_universes:
-        cat = (u.get("category") or "").lower()
+    groups: dict[str, dict] = {}
+    for u in tf_universes():
         uid = u.get("id") or ""
-        name = u.get("name") or ""
-        # Match sector/industry universes
-        if any(prefix in uid for prefix in _SECTOR_UNIVERSE_PREFIXES):
-            sectors.append({
-                "id": uid,
-                "name": name or uid,
-                "symbol_count": u.get("symbol_count", 0),
-            })
-        elif "sector" in cat or "industry" in cat:
-            sectors.append({
-                "id": uid,
-                "name": name or uid,
-                "symbol_count": u.get("symbol_count", 0),
-            })
-    return sectors
+        if not uid.startswith(_SECTOR_UNIVERSE_PREFIX):
+            continue
+        name = (u.get("name") or uid).strip()
+        if name.upper().startswith("SW1"):
+            name = name[3:].strip()
+        name = name or uid
+        g = groups.setdefault(name, {"name": name, "ids": [], "symbol_count": 0})
+        g["ids"].append(uid)
+        g["symbol_count"] += u.get("symbol_count", 0) or 0
+    _TF_BOARD_IDS.clear()
+    for name, g in groups.items():
+        _TF_BOARD_IDS[name] = g["ids"]
+    return list(groups.values())
 
 
 # ── Industry boards (TickFlow → AkShare-EM) ────────────────────────────────────
@@ -169,7 +170,7 @@ def _boards_tickflow() -> list[dict]:
     for s in sectors:
         boards.append({
             "name": s["name"],
-            "code": s["id"],
+            "code": s["ids"][0] if s.get("ids") else s["name"],
             "price": None,
             "pct_change": None,
             "total_mktcap": None,
@@ -228,21 +229,28 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
 
 
 def _cons_tickflow(board_name: str) -> list[str]:
-    """Get board constituents from TickFlow universe detail.
+    """Get board constituents by unioning every TickFlow fragment universe of a board.
 
-    The board_name is expected to match a TickFlow universe ID.
+    A 申万一级 board (e.g. "家用电器") maps to several CN_Equity_SW1_* fragment
+    universes; we merge their symbol lists and de-duplicate to 6-digit codes.
     """
     from tradingagents.dataflows.tickflow_data import tf_universe_detail
-    detail = tf_universe_detail(board_name)
-    if not detail:
-        return []
-    symbols = detail.get("symbols", [])
-    # Convert TickFlow symbols (600000.SH) to 6-digit codes (600000)
-    codes = []
-    for sym in symbols:
-        six = sym.split(".")[0]
-        if six and six.isdigit():
-            codes.append(six.zfill(6))
+    ids = _TF_BOARD_IDS.get(board_name)
+    if ids is None:
+        # Mapping not built yet (e.g. boards served from cache) — rebuild it.
+        _discover_sector_universes()
+        ids = _TF_BOARD_IDS.get(board_name, [])
+    codes: list[str] = []
+    seen: set[str] = set()
+    for uid in ids:
+        detail = tf_universe_detail(uid)
+        for sym in (detail or {}).get("symbols", []):
+            six = sym.split(".")[0]
+            if six and six.isdigit():
+                six = six.zfill(6)
+                if six not in seen:
+                    seen.add(six)
+                    codes.append(six)
     return codes
 
 
