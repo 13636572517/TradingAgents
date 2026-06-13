@@ -86,6 +86,53 @@ function BoardCard({
   )
 }
 
+// ── Valuation filter rules ────────────────────────────────────────────────────
+//
+// Common value-investing heuristics for spotting undervalued stocks. Each rule
+// is independently toggleable (checkbox); enabled rules are ANDed together.
+// Rules that need data we don't currently collect per-candidate (PEG, 股息率,
+// DCF 内在价值, AH 折溢价率) are intentionally omitted — see follow-up note.
+
+interface FilterRule {
+  key: string
+  label: string
+  description: string
+  test: (c: ScreeningCandidate) => boolean
+}
+
+const FILTER_RULES: FilterRule[] = [
+  {
+    key: "pb_below_1",
+    label: "PB < 1（破净）",
+    description: "市净率低于1，股价低于每股净资产（账面价值），可能被低估，对重资产行业（银行、地产等）尤为有效。",
+    test: (c) => c.pb != null && c.pb > 0 && c.pb < 1,
+  },
+  {
+    key: "board_pe_low",
+    label: "行业PE分位 < 30%",
+    description: "所属申万板块的市盈率处于近年历史分位的30%以下，意味着当前估值比历史上70%的时间都便宜。",
+    test: (c) => c.board_pe_pct != null && c.board_pe_pct < 30,
+  },
+  {
+    key: "board_pb_low",
+    label: "行业PB分位 < 30%",
+    description: "所属申万板块的市净率处于近年历史分位的30%以下。",
+    test: (c) => c.board_pb_pct != null && c.board_pb_pct < 30,
+  },
+  {
+    key: "pe_reasonable",
+    label: "PE ∈ (0, 30]",
+    description: "市盈率为正且不超过30倍：排除亏损股（PE为负）与明显高估的股票。",
+    test: (c) => c.pe != null && c.pe > 0 && c.pe <= 30,
+  },
+  {
+    key: "roe_healthy",
+    label: "ROE ≥ 8%",
+    description: "净资产收益率不低于8%，确保盈利能力达标，避免低估值但基本面差的“价值陷阱”。",
+    test: (c) => c.roe != null && c.roe >= 8,
+  },
+]
+
 // ── Multi-Select Dropdown ─────────────────────────────────────────────────────
 
 function MultiSelect({
@@ -177,6 +224,17 @@ export default function Screener() {
   // Multi-select filter for candidates tab
   const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set())
 
+  // Valuation filter rules for candidates tab (checkbox-enabled, ANDed)
+  const [activeRules, setActiveRules] = useState<Set<string>>(new Set())
+  const toggleRule = (key: string) => {
+    setActiveRules((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   const loadLatest = useCallback(async () => {
     try {
       const r = await api.getLatestScreeningRun()
@@ -249,9 +307,14 @@ export default function Screener() {
     if (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length) {
       list = list.filter((c) => selectedSectors.has(c.board_name))
     }
+    for (const rule of FILTER_RULES) {
+      if (activeRules.has(rule.key)) {
+        list = list.filter(rule.test)
+      }
+    }
     list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     return list
-  }, [candidates, selectedSectors, sw2Sectors.length])
+  }, [candidates, selectedSectors, sw2Sectors.length, activeRules])
 
   const sw1Count = run?.summary?.sw1_count ?? 0
   const sw2Count = run?.summary?.sw2_count ?? 0
@@ -377,6 +440,34 @@ export default function Screener() {
               {/* ── Tab: candidates big table ──────────────────────────────── */}
               {tab === "candidates" && (
                 <>
+                  {/* Valuation filter rules (checkbox, AND-combined) */}
+                  <div className="mb-3 rounded border border-border bg-surface p-2.5">
+                    <div className="text-xs text-gray-500 mb-2">
+                      估值筛选规则（勾选启用，多条规则为「且」关系）
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {FILTER_RULES.map((rule) => (
+                        <label
+                          key={rule.key}
+                          title={rule.description}
+                          className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border cursor-pointer transition-colors ${
+                            activeRules.has(rule.key)
+                              ? "border-accent/40 bg-accent/10 text-accent"
+                              : "border-border text-gray-400 hover:border-gray-500"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={activeRules.has(rule.key)}
+                            onChange={() => toggleRule(rule.key)}
+                            className="accent-accent"
+                          />
+                          {rule.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Sector multi-select filter */}
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xs text-gray-500">板块筛选：</span>
@@ -386,9 +477,9 @@ export default function Screener() {
                       onChange={setSelectedSectors}
                       placeholder={`全部 ${sw2Sectors.length} 个二级行业`}
                     />
-                    {selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length && (
+                    {(activeRules.size > 0 || (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length)) && (
                       <span className="text-xs text-amber-400">
-                        已选 {selectedSectors.size} 个板块，共 {tableCandidates.length} 只候选股
+                        共 {tableCandidates.length} 只候选股符合条件
                       </span>
                     )}
                   </div>
@@ -468,7 +559,11 @@ export default function Screener() {
                     </table>
                   </div>
                   {tableCandidates.length === 0 && (
-                    <p className="text-center py-12 text-sm text-gray-500">暂无候选股。</p>
+                    <p className="text-center py-12 text-sm text-gray-500">
+                      {activeRules.size > 0 || (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length)
+                        ? "没有符合所选筛选条件的候选股，请尝试取消部分规则或板块筛选。"
+                        : "暂无候选股。"}
+                    </p>
                   )}
                 </>
               )}

@@ -228,13 +228,28 @@ def _load_ohlcv_cached(tf_code: str, start_date: str, end_date: str,
     for fetch_start, fetch_end in gaps:
         if fetch_start > fetch_end:
             continue
-        try:
-            fresh = _fetch_klines_raw(tf_code, fetch_start, fetch_end, adjust)
-            if fresh:
-                cache_store.upsert_ohlcv(tf_code, fresh, adjust)
-        except TickFlowError as e:
-            logger.warning("ohlcv gap fetch failed for %s (%s..%s): %s",
-                           tf_code, fetch_start, fetch_end, e)
+        # TickFlow's klines endpoint caps each response at ~100 bars (returns
+        # the most recent ones within the requested window), so wide gaps
+        # (e.g. a 2Y chart on a cold cache) need multiple paginated calls,
+        # walking backwards from fetch_end until fetch_start is covered.
+        remaining_end = fetch_end
+        for _ in range(20):
+            try:
+                fresh = _fetch_klines_raw(tf_code, fetch_start, remaining_end, adjust)
+            except TickFlowError as e:
+                logger.warning("ohlcv gap fetch failed for %s (%s..%s): %s",
+                               tf_code, fetch_start, remaining_end, e)
+                break
+            if not fresh:
+                break
+            cache_store.upsert_ohlcv(tf_code, fresh, adjust)
+            min_date = min(b["date"] for b in fresh)
+            if min_date <= fetch_start:
+                break
+            remaining_end = (datetime.strptime(min_date, "%Y-%m-%d")
+                             - timedelta(days=1)).strftime("%Y-%m-%d")
+            if remaining_end < fetch_start:
+                break
 
     return cache_store.get_ohlcv_range(tf_code, start_date, end_date, adjust)
 
