@@ -4,8 +4,6 @@ import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
 import type { ScreeningRun, ScreeningCandidate, BoardValuation } from "../types"
 
-const DEPTH_LABEL: Record<number, string> = { 1: "快速", 2: "标准", 3: "深度" }
-
 function fmtYi(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—"
   return `${(v / 1e8).toFixed(1)}亿`
