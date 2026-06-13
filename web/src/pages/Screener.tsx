@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
-import type { ScreeningRun, BoardValuation, ScreeningCandidate } from "../types"
+import type { ScreeningRun, BoardValuation, ScreeningCandidate, BoardMember } from "../types"
+import { ALL_SW1, ALL_SW2, SW1_TO_SW2, SW2_TO_SW1 } from "../data/swIndustries"
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -93,11 +94,40 @@ function BoardCard({
 // Rules that need data we don't currently collect per-candidate (PEG, 股息率,
 // DCF 内在价值, AH 折溢价率) are intentionally omitted — see follow-up note.
 
+// Unified row shape for the candidates table — covers both screened candidates
+// (ScreeningCandidate) and plain board members fetched on-demand when "包含非候选股"
+// is enabled (BoardMember, enriched with board_name/board_level/board_pe_pct/board_pb_pct).
+interface CandidateRow {
+  code: string | null
+  ticker: string
+  ticker_name: string | null
+  board_name: string
+  board_level: number
+  board_pe_pct: number | null
+  board_pb_pct: number | null
+  price: number | null
+  pct_change: number | null
+  total_mktcap: number | null
+  pe: number | null
+  pb: number | null
+  roe: number | null
+  net_profit_yoy: number | null
+  debt_ratio: number | null
+  gross_margin: number | null
+  ocf_to_revenue: number | null
+  eps_ttm: number | null
+  bps: number | null
+  rank_in_board: number | null
+  score: number | null
+  analysis_id: string | null
+  is_candidate: boolean
+}
+
 interface FilterRule {
   key: string
   label: string
   description: string
-  test: (c: ScreeningCandidate) => boolean
+  test: (c: CandidateRow) => boolean
 }
 
 const FILTER_RULES: FilterRule[] = [
@@ -277,8 +307,14 @@ export default function Screener() {
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<"sw1" | "sw2" | "candidates">("sw1")
 
-  // Multi-select filter for candidates tab
-  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set())
+  // Two-level industry filter for candidates tab (一级 -> 二级)
+  const [selectedSW1, setSelectedSW1] = useState<Set<string>>(new Set())
+  const [selectedSW2, setSelectedSW2] = useState<Set<string>>(new Set())
+
+  // Include non-candidate board members in the candidates table (default off)
+  const [includeNonCandidates, setIncludeNonCandidates] = useState(false)
+  const [extraMembers, setExtraMembers] = useState<CandidateRow[]>([])
+  const [loadingMembers, setLoadingMembers] = useState(false)
 
   // Valuation filter rules for candidates tab (checkbox-enabled, ANDed)
   const [activeRules, setActiveRules] = useState<Set<string>>(new Set())
@@ -319,7 +355,8 @@ export default function Screener() {
   // Reset sector filter when tab switches to candidates
   useEffect(() => {
     if (tab === "candidates") {
-      setSelectedSectors(new Set())
+      setSelectedSW1(new Set())
+      setSelectedSW2(new Set())
     }
   }, [tab])
 
@@ -351,18 +388,113 @@ export default function Screener() {
     return ((a.pe_pct ?? 100) + (a.pb_pct ?? 100)) - ((b.pe_pct ?? 100) + (b.pb_pct ?? 100))
   })
 
-  // SW2 sector options for multi-select
-  const sw2Sectors = useMemo(
-    () => Array.from(new Set(candidates.filter((c) => c.board_level === 2).map((c) => c.board_name))),
+  // Candidates normalized into the unified row shape
+  const candidateRows: CandidateRow[] = useMemo(
+    () => candidates.map((c) => ({ ...c, is_candidate: true })),
     [candidates],
   )
 
+  // SW2 options narrowed by selected SW1 (一级行业); empty/full selection = all 130
+  const sw2Options = useMemo(() => {
+    if (selectedSW1.size === 0 || selectedSW1.size === ALL_SW1.length) return ALL_SW2
+    return Array.from(selectedSW1).flatMap((s1) => SW1_TO_SW2[s1] ?? [])
+  }, [selectedSW1])
+
+  // Prune SW2 selection when SW1 selection changes and narrows the option set
+  useEffect(() => {
+    setSelectedSW2((prev) => {
+      if (prev.size === 0) return prev
+      const next = new Set(Array.from(prev).filter((s2) => sw2Options.includes(s2)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [sw2Options])
+
+  const sw1Active = selectedSW1.size > 0 && selectedSW1.size < ALL_SW1.length
+  const sw2Active = selectedSW2.size > 0 && selectedSW2.size < sw2Options.length
+
+  const passesSectorFilter = useCallback((row: CandidateRow) => {
+    if (sw1Active) {
+      const parent = row.board_level === 1 ? row.board_name : SW2_TO_SW1[row.board_name]
+      if (!parent || !selectedSW1.has(parent)) return false
+    }
+    if (sw2Active && row.board_level === 2 && !selectedSW2.has(row.board_name)) return false
+    return true
+  }, [sw1Active, sw2Active, selectedSW1, selectedSW2])
+
+  // SW2 boards in scope, used to fetch full member lists when "包含非候选股" is on
+  const activeBoards = useMemo(() => {
+    const seen = new Set<string>()
+    const boards: { level: number; name: string }[] = []
+    for (const c of candidateRows) {
+      if (c.board_level !== 2 || !passesSectorFilter(c)) continue
+      if (seen.has(c.board_name)) continue
+      seen.add(c.board_name)
+      boards.push({ level: 2, name: c.board_name })
+    }
+    return boards
+  }, [candidateRows, passesSectorFilter])
+
+  const MAX_NON_CANDIDATE_BOARDS = 15
+
+  // Fetch full board member lists (non-candidates) when enabled
+  useEffect(() => {
+    if (!includeNonCandidates || !run || activeBoards.length === 0
+        || activeBoards.length > MAX_NON_CANDIDATE_BOARDS) {
+      setExtraMembers([])
+      return
+    }
+    let cancelled = false
+    setLoadingMembers(true)
+    const allBoards: BoardValuation[] = run.summary?.all_boards ?? []
+    Promise.all(
+      activeBoards.map((b) => api.getBoardMembers(run.id, b.level, b.name).catch(() => null)),
+    ).then((results) => {
+      if (cancelled) return
+      const extras: CandidateRow[] = []
+      results.forEach((res, i) => {
+        if (!res) return
+        const board = activeBoards[i]
+        const bv = allBoards.find((x) => x.level === board.level && x.name === board.name)
+        for (const m of res.members as BoardMember[]) {
+          if (m.is_candidate) continue
+          extras.push({
+            code: m.code,
+            ticker: m.ticker,
+            ticker_name: m.name,
+            board_name: board.name,
+            board_level: board.level,
+            board_pe_pct: bv?.pe_pct ?? null,
+            board_pb_pct: bv?.pb_pct ?? null,
+            price: m.price,
+            pct_change: m.pct_change,
+            total_mktcap: m.total_mktcap,
+            pe: m.pe,
+            pb: m.pb,
+            roe: m.roe,
+            net_profit_yoy: m.net_profit_yoy,
+            debt_ratio: m.debt_ratio,
+            gross_margin: m.gross_margin,
+            ocf_to_revenue: m.ocf_to_revenue,
+            eps_ttm: m.eps_ttm,
+            bps: m.bps,
+            rank_in_board: null,
+            score: null,
+            analysis_id: m.analysis_id,
+            is_candidate: false,
+          })
+        }
+      })
+      setExtraMembers(extras)
+    }).finally(() => { if (!cancelled) setLoadingMembers(false) })
+    return () => { cancelled = true }
+  }, [includeNonCandidates, run, activeBoards])
+
   // Filtered candidates for the big table
   const tableCandidates = useMemo(() => {
-    let list = [...candidates]
-    if (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length) {
-      list = list.filter((c) => selectedSectors.has(c.board_name))
-    }
+    let list: CandidateRow[] = includeNonCandidates
+      ? [...candidateRows, ...extraMembers]
+      : [...candidateRows]
+    list = list.filter(passesSectorFilter)
     for (const rule of FILTER_RULES) {
       if (activeRules.has(rule.key)) {
         list = list.filter(rule.test)
@@ -370,7 +502,7 @@ export default function Screener() {
     }
     list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     return list
-  }, [candidates, selectedSectors, sw2Sectors.length, activeRules])
+  }, [candidateRows, extraMembers, includeNonCandidates, passesSectorFilter, activeRules])
 
   const sw1Count = run?.summary?.sw1_count ?? 0
   const sw2Count = run?.summary?.sw2_count ?? 0
@@ -524,18 +656,50 @@ export default function Screener() {
                     </div>
                   </div>
 
-                  {/* Sector multi-select filter */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xs text-gray-500">板块筛选：</span>
+                  {/* Two-level industry filter: 一级行业 -> 二级行业 */}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className="text-xs text-gray-500">行业筛选：</span>
                     <MultiSelect
-                      options={sw2Sectors}
-                      selected={selectedSectors}
-                      onChange={setSelectedSectors}
-                      placeholder={`全部 ${sw2Sectors.length} 个二级行业`}
+                      options={ALL_SW1}
+                      selected={selectedSW1}
+                      onChange={setSelectedSW1}
+                      placeholder={`全部 ${ALL_SW1.length} 个一级行业`}
                     />
-                    {(activeRules.size > 0 || (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length)) && (
+                    <MultiSelect
+                      options={sw2Options}
+                      selected={selectedSW2}
+                      onChange={setSelectedSW2}
+                      placeholder={`全部 ${sw2Options.length} 个二级行业`}
+                    />
+                    {(activeRules.size > 0 || sw1Active || sw2Active) && (
                       <span className="text-xs text-amber-400">
-                        共 {tableCandidates.length} 只候选股符合条件
+                        共 {tableCandidates.length} 只股票符合条件
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Include non-candidate board members */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeNonCandidates}
+                        onChange={(e) => setIncludeNonCandidates(e.target.checked)}
+                        className="accent-accent"
+                      />
+                      包含非候选股（默认不含）
+                    </label>
+                    {includeNonCandidates && loadingMembers && (
+                      <span className="text-xs text-gray-500">加载非候选股名单中…</span>
+                    )}
+                    {includeNonCandidates && !loadingMembers && activeBoards.length > MAX_NON_CANDIDATE_BOARDS && (
+                      <span className="text-xs text-amber-400">
+                        当前涉及 {activeBoards.length} 个二级行业，超过上限（{MAX_NON_CANDIDATE_BOARDS}个），请缩小行业筛选范围以加载非候选股名单。
+                      </span>
+                    )}
+                    {includeNonCandidates && !loadingMembers && activeBoards.length === 0 && (
+                      <span className="text-xs text-gray-500">
+                        未筛选出二级行业候选股板块，无法加载非候选股名单。
                       </span>
                     )}
                   </div>
@@ -567,7 +731,11 @@ export default function Screener() {
                           >
                             <td className="px-2 py-2 text-gray-500">
                               <span className="inline-flex items-center gap-1">
-                                <span className="text-[9px] px-1 rounded bg-accent/20 text-accent">候选</span>
+                                {c.is_candidate ? (
+                                  <span className="text-[9px] px-1 rounded bg-accent/20 text-accent">候选</span>
+                                ) : (
+                                  <span className="text-[9px] px-1 rounded bg-surface-2 text-gray-500">非候选</span>
+                                )}
                                 {c.rank_in_board && <span>#{c.rank_in_board}</span>}
                               </span>
                             </td>
@@ -616,8 +784,8 @@ export default function Screener() {
                   </div>
                   {tableCandidates.length === 0 && (
                     <p className="text-center py-12 text-sm text-gray-500">
-                      {activeRules.size > 0 || (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length)
-                        ? "没有符合所选筛选条件的候选股，请尝试取消部分规则或板块筛选。"
+                      {activeRules.size > 0 || sw1Active || sw2Active
+                        ? "没有符合所选筛选条件的股票，请尝试取消部分规则或行业筛选。"
                         : "暂无候选股。"}
                     </p>
                   )}

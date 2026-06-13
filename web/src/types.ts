@@ -262,6 +262,12 @@ export interface BoardMember {
   pb: number | null
   roe: number | null
   total_mktcap: number | null
+  net_profit_yoy: number | null
+  debt_ratio: number | null
+  gross_margin: number | null
+  ocf_to_revenue: number | null
+  eps_ttm: number | null
+  bps: number | null
   is_candidate: boolean
   candidate_id: string | null
   score: number | null

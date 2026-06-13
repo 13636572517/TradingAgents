@@ -373,7 +373,8 @@ def get_board_members_snapshot(board_name: str, level: int = 1,
     cold. Cached for ``ttl`` seconds to keep repeated clicks cheap.
 
     Returns a list of {code, name, ticker, price, pct_change, amount, pe, pb,
-    roe, total_mktcap} dicts. Empty list if the board can't be resolved.
+    roe, total_mktcap, net_profit_yoy, debt_ratio, gross_margin,
+    ocf_to_revenue, eps_ttm, bps} dicts. Empty list if the board can't be resolved.
     """
     cache_key = f"board_members:{level}:{board_name}"
     cached = _cache_get(cache_key, ttl)
@@ -434,6 +435,12 @@ def get_board_members_snapshot(board_name: str, level: int = 1,
             "pb": round(price / bps, 4) if (price and bps and bps > 0) else None,
             "total_mktcap": (price * tshare) if (price and tshare) else None,
             "roe": _to_float(fm.get("roe")),
+            "net_profit_yoy": _to_float(fm.get("net_profit_yoy")),
+            "debt_ratio": _to_float(fm.get("debt_ratio")),
+            "gross_margin": _to_float(fm.get("gross_margin")),
+            "ocf_to_revenue": _to_float(fm.get("ocf_to_revenue")),
+            "eps_ttm": eps_ttm,
+            "bps": bps,
         })
     members.sort(key=lambda m: -(m.get("total_mktcap") or 0))
     _cache_set(cache_key, members, int(ttl))
