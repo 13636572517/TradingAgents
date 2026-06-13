@@ -502,6 +502,14 @@ test_tickflow_connection = test_tf_connection
 
 
 # ── Batch helpers for sector_data.py ───────────────────────────────────────────
+#
+# NOTE on symbol formats: ``tf_instruments`` and ``tf_financials_valuation`` take
+# TickFlow-format symbols (e.g. "600519.SH"), matching the
+# ``tf_universe_symbols()`` output used for whole-market snapshots. The
+# single-ticker helpers above (``tf_batch_quotes``, ``tf_batch_klines``, etc.)
+# take Yahoo Finance format (e.g. "600519.SS") and convert internally via
+# ``_to_tf_code``. Do not mix the two — passing Yahoo-format symbols to the
+# functions below will silently mis-key results.
 
 def _post(path: str, body: dict):
     """POST request to TickFlow API (retried). Raises TickFlowError on failure."""
@@ -516,12 +524,18 @@ _INSTR_BATCH = 200
 def tf_instruments(tf_symbols: list[str]) -> dict:
     """Batch instrument metadata. Returns {6-digit code: {total_shares, float_shares, name}}.
 
-    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH").
+    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH"). Tolerant of
+    partial failure: a batch that errors after retries is logged and skipped so a
+    single transient blip doesn't sink the whole whole-market enrichment.
     """
     out: dict[str, dict] = {}
     for i in range(0, len(tf_symbols), _INSTR_BATCH):
         chunk = tf_symbols[i:i + _INSTR_BATCH]
-        resp = _post("instruments", {"symbols": chunk})
+        try:
+            resp = _post("instruments", {"symbols": chunk})
+        except TickFlowError as e:
+            logger.warning("tf_instruments: batch %d skipped (%s)", i // _INSTR_BATCH, e)
+            continue
         for item in resp.get("data", []) or []:
             # Key by the symbol's 6-digit prefix — TickFlow's ``code`` field is not
             # reliably unique across the universe (collapses ~5500 → ~2900).
@@ -537,27 +551,74 @@ def tf_instruments(tf_symbols: list[str]) -> dict:
     return out
 
 
-def tf_financials_latest(tf_symbols: list[str]) -> dict:
-    """Batch the latest core financial metrics for many symbols.
+def _eps_ttm(records: list[dict]) -> Optional[float]:
+    """Compute trailing-twelve-month EPS from a series of cumulative-YTD reports.
 
-    Returns {6-digit code: {bps, eps_basic, period_end, roe}} using the most recent
-    reporting period (``latest=true``).  ``tf_symbols`` are TickFlow-format symbols.
+    Chinese quarterly EPS is cumulative within the fiscal year, so:
+      TTM = latest_YTD + prior_full_year − prior_year_same_period_YTD
+    Falls back to the most recent annual (FY) EPS, then to annualising the latest
+    YTD figure, then None. ``records`` is any unordered list of period dicts with
+    ``period_end`` (YYYY-MM-DD) and ``eps_basic``.
     """
+    recs = [r for r in records if r.get("period_end") and r.get("eps_basic") is not None]
+    if not recs:
+        return None
+    recs.sort(key=lambda r: r["period_end"])
+    latest = recs[-1]
+    pe = str(latest["period_end"])
+    try:
+        year, month = int(pe[:4]), int(pe[5:7])
+        eps_latest = float(latest["eps_basic"])
+    except (ValueError, TypeError):
+        return None
+
+    by_period = {str(r["period_end"]): float(r["eps_basic"]) for r in recs}
+    if month == 12:                       # latest report is a full year
+        return eps_latest
+    prior_fy = by_period.get(f"{year - 1}-12-31")
+    prior_same = by_period.get(f"{year - 1}-{pe[5:10]}")
+    if prior_fy is not None and prior_same is not None:
+        return eps_latest + prior_fy - prior_same
+    # Fall back to the most recent available full-year EPS (static), else annualise.
+    fy = [r for r in recs if str(r["period_end"]).endswith("-12-31")]
+    if fy:
+        return float(fy[-1]["eps_basic"])
+    quarter = {3: 1, 6: 2, 9: 3}.get(month)
+    return eps_latest * (4.0 / quarter) if quarter else None
+
+
+def tf_financials_valuation(tf_symbols: list[str], start_year: int = None) -> dict:
+    """Batch financials sufficient to value each stock: latest BPS/ROE + TTM EPS.
+
+    Returns {6-digit code: {bps, roe, eps_ttm, period_end}}. ``tf_symbols`` are
+    TickFlow-format symbols. Fetches the last ~5 reporting periods (via
+    ``start_date``) so a true rolling EPS can be computed — see :func:`_eps_ttm`.
+    Tolerant of partial batch failure.
+    """
+    if start_year is None:
+        start_year = datetime.now().year - 1
+    start_date = f"{start_year}0101"
     out: dict[str, dict] = {}
     for i in range(0, len(tf_symbols), _FIN_BATCH):
         chunk = tf_symbols[i:i + _FIN_BATCH]
-        resp = _get("financials/metrics",
-                    {"symbols": ",".join(chunk), "latest": "true"})
+        try:
+            resp = _get("financials/metrics",
+                        {"symbols": ",".join(chunk), "start_date": start_date})
+        except TickFlowError as e:
+            logger.warning("tf_financials_valuation: batch %d skipped (%s)",
+                           i // _FIN_BATCH, e)
+            continue
         for sym, records in (resp.get("data") or {}).items():
             if not records:
                 continue
-            r = records[0]
+            recs = sorted(records, key=lambda r: r.get("period_end") or "")
+            latest = recs[-1]
             six = sym.split(".")[0].zfill(6)
             out[six] = {
-                "bps": r.get("bps"),
-                "eps_basic": r.get("eps_basic"),
-                "period_end": r.get("period_end"),
-                "roe": r.get("roe"),
+                "bps": latest.get("bps"),
+                "roe": latest.get("roe"),
+                "eps_ttm": _eps_ttm(records),
+                "period_end": latest.get("period_end"),
             }
     return out
 
@@ -577,51 +638,6 @@ def tf_batch_quotes(symbols: list[str]) -> dict:
         sym = item.get("symbol", "")
         yf_code = _from_tf_code(sym)
         six = yf_code.split(".")[0]  # 6-digit code
-        ext = item.get("ext") or {}
-        out[six] = {
-            "code": six,
-            "name": ext.get("name", ""),
-            "price": item.get("last_price"),
-            "pct_change": ext.get("change_pct"),
-            "amount": item.get("amount"),
-            "volume": item.get("volume"),
-            "turnover": ext.get("turnover_rate"),
-            "prev_close": item.get("prev_close"),
-            "open": item.get("open"),
-            "high": item.get("high"),
-            "low": item.get("low"),
-        }
-    return out
-
-
-def tf_universe_quotes(universe_ids: list[str]) -> dict:
-    """Fetch real-time quotes for an entire universe (标的池) in a **single request**.
-
-    This is the recommended approach for whole-market snapshots — it avoids
-    the 5-symbol limit of the `symbols` batch endpoint.
-
-    Parameters
-    ----------
-    universe_ids : list[str]
-        TickFlow universe IDs, e.g. ``["CN_Equity_A"]``.
-
-    Returns
-    -------
-    dict
-        Keyed by 6-digit code (e.g. ``"600519"``) with the same fields as
-        :func:`tf_batch_quotes`.
-    """
-    if not universe_ids:
-        return {}
-    resp = _post("quotes", {"universes": universe_ids})
-    out: dict[str, dict] = {}
-    for item in resp.get("data", []):
-        sym = item.get("symbol", "")
-        parts = sym.split(".")
-        if len(parts) == 2:
-            six = parts[0].zfill(6)
-        else:
-            six = sym.zfill(6)
         ext = item.get("ext") or {}
         out[six] = {
             "code": six,
@@ -670,15 +686,6 @@ def tf_universes() -> list[dict]:
     return resp.get("data", [])
 
 
-def tf_universe_detail(universe_id: str) -> dict:
-    """Get symbols in a specific universe.
-
-    Returns {id, name, region, category, symbol_count, symbols: [...]}.
-    """
-    resp = _get(f"universes/{universe_id}")
-    return resp.get("data", {})
-
-
 def tf_universe_symbols(universe_ids: list[str]) -> list[str]:
     """Fetch symbols from multiple TickFlow universes in a **single quotes request**.
 
@@ -709,14 +716,3 @@ def tf_universe_symbols(universe_ids: list[str]) -> list[str]:
     return symbols
 
 
-def tf_financial_metrics(symbols: list[str], latest: bool = True) -> dict:
-    """Batch financial metrics for tickers (Yahoo Finance format).
-
-    Returns dict keyed by 6-digit code with ROE, margins, EPS, etc.
-    """
-    if not symbols:
-        return {}
-    tf_codes = ",".join([_to_tf_code(s) for s in symbols])
-    params = {"symbols": tf_codes, "latest": str(latest).lower()}
-    resp = _get("financials/metrics", params)
-    return resp.get("data", {})

@@ -53,11 +53,14 @@ def _cache_set(key: str, value: object):
 # ── Ticker helpers ──────────────────────────────────────────────────────────────
 
 def code_to_yf(code: str) -> str:
-    """6-digit A-share code -> Yahoo Finance ticker. 600519 -> 600519.SS"""
+    """6-digit A-share code -> Yahoo Finance ticker. 600519 -> 600519.SS
+
+    北交所 (Beijing) codes are 4xxxxx / 8xxxxx and the newer 920xxx range.
+    """
     c = str(code).strip().zfill(6)
     if c.startswith("6"):
         return f"{c}.SS"
-    if c.startswith(("8", "4")):
+    if c.startswith(("4", "8", "92")):
         return f"{c}.BJ"
     return f"{c}.SZ"
 
@@ -163,7 +166,7 @@ def _boards_tickflow(level: int = 1) -> list[dict]:
     for s in sectors:
         boards.append({
             "name": s["name"],
-            "code": f"{tag}:{s['ids'][0]}" if s.get("ids") else s["name"],
+            "code": f"{tag}:{s['name']}",   # matches _TF_BOARD_IDS key
             "price": None,
             "pct_change": None,
             "total_mktcap": None,
@@ -195,13 +198,6 @@ def _boards_akshare_em() -> list[dict]:
             "down": _to_float(row.get("下跌家数")),
         })
     return boards
-
-
-def _board_code_for(board_name: str) -> Optional[str]:
-    for b in get_industry_boards():
-        if b["name"] == board_name:
-            return b.get("code") or None
-    return None
 
 
 # ── Board constituents (TickFlow → AkShare-EM) ─────────────────────────────────
@@ -308,7 +304,7 @@ def _spot_tickflow() -> dict:
     fields (pe / pb / total_mktcap) are derived here. Returns dict keyed by 6-digit code.
     """
     from tradingagents.dataflows.tickflow_data import (
-        _post, tf_instruments, tf_financials_latest)
+        _post, tf_instruments, tf_financials_valuation)
 
     resp = _post("quotes", {"universes": ["CN_Equity_A"]})
     items = resp.get("data", []) or []
@@ -327,7 +323,7 @@ def _spot_tickflow() -> dict:
     logger.info("_spot_tickflow: %d quotes; fetching shares + financials…", len(tf_syms))
 
     instr = tf_instruments(tf_syms)
-    fin = tf_financials_latest(tf_syms)
+    fin = tf_financials_valuation(tf_syms)
     logger.info("_spot_tickflow: enriched %d instruments, %d financials",
                 len(instr), len(fin))
 
@@ -340,14 +336,14 @@ def _spot_tickflow() -> dict:
         tshare = _to_float(im.get("total_shares"))
         fshare = _to_float(im.get("float_shares"))
         bps = _to_float(fm.get("bps"))
-        eps = _to_float(fm.get("eps_basic"))
+        eps_ttm = _to_float(fm.get("eps_ttm"))
         out[six] = {
             "code": six,
             "name": ext.get("name") or im.get("name") or "",
             "price": price,
             "pct_change": _pct(ext.get("change_pct")),
             "amount": _to_float(it.get("amount")),
-            "pe": _annualised_pe(price, eps, fm.get("period_end")),
+            "pe": round(price / eps_ttm, 2) if (price and eps_ttm and eps_ttm > 0) else None,
             "pb": (price / bps) if (price and bps and bps > 0) else None,
             "total_mktcap": (price * tshare) if (price and tshare) else None,
             "float_mktcap": (price * fshare) if (price and fshare) else None,
@@ -362,28 +358,6 @@ def _pct(v) -> Optional[float]:
     screener/snapshots use percent numbers (0.96), matching East Money/AkShare."""
     f = _to_float(v)
     return f * 100 if f is not None else None
-
-
-def _annualised_pe(price, eps_ytd, period_end) -> Optional[float]:
-    """Approximate a rolling PE from the latest cumulative (YTD) EPS.
-
-    Chinese quarterly EPS is cumulative within the year, so we annualise:
-    Q1×4, H1×2, Q3×4/3, FY×1. Good enough for a relative percentile screen;
-    returns None for loss-making or missing data.
-    """
-    p = _to_float(price)
-    e = _to_float(eps_ytd)
-    if p is None or e is None or e <= 0 or not period_end:
-        return None
-    try:
-        month = int(str(period_end)[5:7])
-    except (ValueError, IndexError):
-        return None
-    quarter = {3: 1, 6: 2, 9: 3, 12: 4}.get(month)
-    if not quarter:
-        return None
-    eps_annual = e * (4.0 / quarter)
-    return round(p / eps_annual, 2) if eps_annual > 0 else None
 
 
 def _spot_akshare_em() -> dict:
@@ -522,11 +496,21 @@ def get_roe_map(ttl: float = 86400) -> dict[str, float]:
 
 # ── Optional factor: main-capital net inflow ─────────────────────────────────────
 
+# Main-capital net-inflow is only sourced from East Money, which permanently
+# rate-limits the production server IP. Flip this on if a working source exists;
+# otherwise the screener simply drops the 15% inflow factor (graceful degradation)
+# instead of wasting a slow, always-failing request on every run.
+_MONEYFLOW_ENABLED = False
+
+
 def get_moneyflow_map(ttl: float = 600) -> dict[str, float]:
     """Return {6-digit code -> 今日主力净流入(CNY)} for the whole market.
 
-    Best-effort: returns empty dict on failure.
+    Best-effort: returns empty dict when no working source is available.
     """
+    if not _MONEYFLOW_ENABLED:
+        return {}
+
     cached = _cache_get("moneyflow_map", ttl)
     if cached is not None:
         return cached  # type: ignore
