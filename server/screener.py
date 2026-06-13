@@ -202,6 +202,8 @@ def score_leaders(board: dict, spot: dict, roe_map: dict, flow_map: dict,
             "debt_ratio": s.get("debt_ratio"),
             "gross_margin": s.get("gross_margin"),
             "ocf_to_revenue": s.get("ocf_to_revenue"),
+            "eps_ttm": s.get("eps_ttm"),
+            "bps": s.get("bps"),
         })
     if not rows:
         return []

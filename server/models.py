@@ -201,6 +201,8 @@ class ScreeningCandidate(Base):
     debt_ratio      = Column(Float)     # 资产负债率 (%)
     gross_margin    = Column(Float)     # 毛利率 (%)
     ocf_to_revenue  = Column(Float)     # 经营现金流/营收 (%)
+    eps_ttm         = Column(Float)     # 滚动每股收益 (Graham Number 计算用)
+    bps             = Column(Float)     # 每股净资产 (Graham Number 计算用)
     rank_in_board   = Column(Integer)   # 1 = top leader
     score           = Column(Float)     # composite leader score (0-100)
     reason          = Column(Text)      # human-readable selection rationale

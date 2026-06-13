@@ -205,6 +205,8 @@ export interface ScreeningCandidate {
   debt_ratio: number | null
   gross_margin: number | null
   ocf_to_revenue: number | null
+  eps_ttm: number | null
+  bps: number | null
   rank_in_board: number | null
   score: number | null
   reason: string | null

@@ -176,6 +176,17 @@ const FILTER_RULES: FilterRule[] = [
     description: "经营活动现金流占营收比例为正，说明账面利润有真实现金流入支撑，排除“纸面盈利”风险。",
     test: (c) => c.ocf_to_revenue != null && c.ocf_to_revenue > 0,
   },
+  {
+    key: "below_graham_number",
+    label: "现价 < 格雷厄姆数",
+    description: "格雷厄姆数 = √(22.5 × 每股收益TTM × 每股净资产)，是格雷厄姆提出的防御型投资者估值上限（隐含PE≤15且PB≤1.5）。现价低于该值说明股价相对盈利和净资产具有安全边际。",
+    test: (c) => {
+      if (c.eps_ttm == null || c.bps == null || c.price == null) return false
+      if (c.eps_ttm <= 0 || c.bps <= 0) return false
+      const graham = Math.sqrt(22.5 * c.eps_ttm * c.bps)
+      return c.price < graham
+    },
+  },
 ]
 
 // ── Multi-Select Dropdown ─────────────────────────────────────────────────────

@@ -348,6 +348,8 @@ def _spot_tickflow() -> dict:
             "debt_ratio": _to_float(fm.get("debt_ratio")),
             "gross_margin": _to_float(fm.get("gross_margin")),
             "ocf_to_revenue": _to_float(fm.get("ocf_to_revenue")),
+            "eps_ttm": eps_ttm,
+            "bps": bps,
         }
     return out
 

@@ -52,6 +52,8 @@ def init_db():
     _migrate_add_column("screening_candidates", "debt_ratio",        "FLOAT")
     _migrate_add_column("screening_candidates", "gross_margin",      "FLOAT")
     _migrate_add_column("screening_candidates", "ocf_to_revenue",    "FLOAT")
+    _migrate_add_column("screening_candidates", "eps_ttm",           "FLOAT")
+    _migrate_add_column("screening_candidates", "bps",               "FLOAT")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:
