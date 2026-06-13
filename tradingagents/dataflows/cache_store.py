@@ -25,6 +25,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -288,6 +289,211 @@ def get_max_period_end_batch(tf_symbols: list[str], statement: str
                   .group_by(StockFinancials.symbol)
                   .all())
         return {sym: pe for sym, pe in rows if pe}
+    finally:
+        db.close()
+
+
+# ── DB layer (Phase 3: instrument metadata + industry board definitions) ──────
+
+def _instrument_model():
+    try:
+        from server.models import Instrument
+        return Instrument
+    except Exception:
+        return None
+
+
+def _board_models():
+    try:
+        from server.models import IndustryBoard, BoardConstituent
+        return IndustryBoard, BoardConstituent
+    except Exception:
+        return None, None
+
+
+def get_instruments(codes: list[str]) -> dict[str, dict]:
+    """Return cached {6-digit code: {name, total_shares, float_shares}}."""
+    db = _session()
+    if db is None or not codes:
+        return {}
+    try:
+        Instrument = _instrument_model()
+        if Instrument is None:
+            return {}
+        rows = db.query(Instrument).filter(Instrument.symbol.in_(codes)).all()
+        return {
+            r.symbol: {
+                "name": r.name,
+                "total_shares": r.total_shares,
+                "float_shares": r.float_shares,
+            }
+            for r in rows
+        }
+    finally:
+        db.close()
+
+
+def get_stale_instrument_codes(codes: list[str], max_age_days: float = 30) -> list[str]:
+    """Return codes missing from the cache or older than ``max_age_days``."""
+    if not codes:
+        return []
+    db = _session()
+    if db is None:
+        return list(codes)
+    try:
+        Instrument = _instrument_model()
+        if Instrument is None:
+            return list(codes)
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        fresh = {
+            sym for (sym,) in db.query(Instrument.symbol)
+                                 .filter(Instrument.symbol.in_(codes),
+                                         Instrument.updated_at >= cutoff)
+                                 .all()
+        }
+        return [c for c in codes if c not in fresh]
+    finally:
+        db.close()
+
+
+def upsert_instruments(items: dict[str, dict]) -> int:
+    """Upsert {6-digit code: {name, total_shares, float_shares}}."""
+    if not items:
+        return 0
+    db = _session()
+    if db is None:
+        return 0
+    try:
+        Instrument = _instrument_model()
+        if Instrument is None:
+            return 0
+        existing = {
+            r.symbol: r for r in db.query(Instrument)
+                                    .filter(Instrument.symbol.in_(list(items.keys())))
+                                    .all()
+        }
+        written = 0
+        for code, data in items.items():
+            row = existing.get(code)
+            if row is None:
+                row = Instrument(symbol=code)
+                db.add(row)
+            row.name = data.get("name") or row.name
+            row.total_shares = data.get("total_shares")
+            row.float_shares = data.get("float_shares")
+            row.updated_at = datetime.utcnow()
+            written += 1
+        db.commit()
+        return written
+    except Exception as e:
+        logger.warning("upsert_instruments failed: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+def get_industry_board_defs(level: int, max_age_days: float) -> Optional[list[dict]]:
+    """Return cached board definitions for a Shenwan level, or None if missing/stale.
+
+    Each item is ``{name, ids, symbol_count}`` matching the shape produced by
+    ``sector_data._discover_boards``.
+    """
+    db = _session()
+    if db is None:
+        return None
+    try:
+        IndustryBoard, _ = _board_models()
+        if IndustryBoard is None:
+            return None
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        rows = db.query(IndustryBoard).filter(IndustryBoard.level == level).all()
+        if not rows:
+            return None
+        if any(r.updated_at is None or r.updated_at < cutoff for r in rows):
+            return None
+        return [
+            {"name": r.name, "ids": r.universe_ids or [], "symbol_count": r.symbol_count or 0}
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+def upsert_industry_board_defs(level: int, boards: list[dict]) -> None:
+    """Persist board definitions for a Shenwan level, removing boards no longer present."""
+    db = _session()
+    if db is None:
+        return
+    try:
+        IndustryBoard, _ = _board_models()
+        if IndustryBoard is None:
+            return
+        existing = {
+            r.name: r for r in db.query(IndustryBoard).filter(IndustryBoard.level == level).all()
+        }
+        names = {b["name"] for b in boards}
+        for b in boards:
+            row = existing.get(b["name"])
+            if row is None:
+                row = IndustryBoard(level=level, name=b["name"])
+                db.add(row)
+            row.universe_ids = b["ids"]
+            row.symbol_count = b.get("symbol_count") or 0
+            row.updated_at = datetime.utcnow()
+        for name, row in existing.items():
+            if name not in names:
+                db.delete(row)
+        db.commit()
+    except Exception as e:
+        logger.warning("upsert_industry_board_defs failed for level %d: %s", level, e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def get_board_member_codes(level: int, board_name: str, max_age_days: float) -> Optional[list[str]]:
+    """Return cached constituent codes for a board, or None if missing/stale."""
+    db = _session()
+    if db is None:
+        return None
+    try:
+        _, BoardConstituent = _board_models()
+        if BoardConstituent is None:
+            return None
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        row = (db.query(BoardConstituent)
+                 .filter(BoardConstituent.level == level,
+                         BoardConstituent.board_name == board_name)
+                 .first())
+        if row is None or row.updated_at is None or row.updated_at < cutoff:
+            return None
+        return row.codes or []
+    finally:
+        db.close()
+
+
+def upsert_board_member_codes(level: int, board_name: str, codes: list[str]) -> None:
+    db = _session()
+    if db is None:
+        return
+    try:
+        _, BoardConstituent = _board_models()
+        if BoardConstituent is None:
+            return
+        row = (db.query(BoardConstituent)
+                 .filter(BoardConstituent.level == level,
+                         BoardConstituent.board_name == board_name)
+                 .first())
+        if row is None:
+            row = BoardConstituent(level=level, board_name=board_name)
+            db.add(row)
+        row.codes = codes
+        row.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        logger.warning("upsert_board_member_codes failed for %s/%s: %s", level, board_name, e)
+        db.rollback()
     finally:
         db.close()
 

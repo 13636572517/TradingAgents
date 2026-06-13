@@ -159,6 +159,43 @@ class StockFinancials(Base):
     fetched_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Instrument(Base):
+    """Share-structure metadata (total/float shares, name) per A-share code.
+
+    Changes only on placements, buybacks, or renames — fetched from TickFlow
+    ``POST /v1/instruments`` and refreshed only when stale (see
+    ``cache_store.get_stale_instrument_codes``)."""
+    __tablename__ = "instruments"
+
+    symbol       = Column(String(6), primary_key=True)   # 6-digit A-share code
+    name         = Column(String(100))
+    total_shares = Column(Float)
+    float_shares = Column(Float)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IndustryBoard(Base):
+    """Shenwan industry board definitions (SW1/SW2), discovered from TickFlow
+    ``/v1/universes``. Reclassified roughly once a year."""
+    __tablename__ = "industry_boards"
+
+    level        = Column(Integer, primary_key=True)   # 1 = SW1, 2 = SW2
+    name         = Column(String(50), primary_key=True)
+    universe_ids = Column(JSON)         # list of TickFlow universe ids that make up this board
+    symbol_count = Column(Integer)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BoardConstituent(Base):
+    """Constituent stock codes for a Shenwan board (one row per board)."""
+    __tablename__ = "board_constituents"
+
+    level      = Column(Integer, primary_key=True)
+    board_name = Column(String(50), primary_key=True)
+    codes      = Column(JSON)          # list of 6-digit codes
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ScreeningRun(Base):
     """One execution of the stock-screening pipeline."""
     __tablename__ = "screening_runs"

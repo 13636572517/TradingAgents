@@ -104,16 +104,35 @@ def _first_nonempty(label: str, providers: list[tuple]):
 # name into real boards and union their constituents.
 _TF_BOARD_IDS: dict[str, list[str]] = {}   # name → [universe ids]
 
+# Shenwan board definitions (which universe ids make up "电子" etc.) are
+# reclassified roughly once a year — cache permanently in the DB and only
+# re-discover from TickFlow when stale. Constituent codes change more often
+# (IPOs, delistings), so they're cached separately with a shorter TTL.
+_BOARD_DEF_STALE_DAYS = 7
+_BOARD_CONS_STALE_DAYS = 1
+
 
 def _discover_boards(level: int = 1) -> list[dict]:
     """Discover 申万 industry boards from TickFlow at the given level (1/2/3).
 
     Merges same-name fragment universes. Returns list of {name, ids, symbol_count}.
     Also refreshes ``_TF_BOARD_IDS`` for constituent lookups.
+
+    Board definitions are cached permanently in the DB (``IndustryBoard`` table)
+    and only re-fetched from TickFlow's ~670-entry ``/v1/universes`` listing when
+    older than ``_BOARD_DEF_STALE_DAYS``.
     """
+    from . import cache_store
+    tag = f"SW{level}"
+
+    cached = cache_store.get_industry_board_defs(level, _BOARD_DEF_STALE_DAYS)
+    if cached is not None:
+        for b in cached:
+            _TF_BOARD_IDS[f"{tag}:{b['name']}"] = b["ids"]
+        return cached
+
     from tradingagents.dataflows.tickflow_data import tf_universes
     prefix = f"CN_Equity_SW{level}_"
-    tag = f"SW{level}"
     groups: dict[str, dict] = {}
     for u in tf_universes():
         uid = u.get("id") or ""
@@ -129,7 +148,10 @@ def _discover_boards(level: int = 1) -> list[dict]:
     # Merge into global cache (level-specific keys)
     for name, g in groups.items():
         _TF_BOARD_IDS[f"{tag}:{name}"] = g["ids"]
-    return list(groups.values())
+    boards = list(groups.values())
+    if boards:
+        cache_store.upsert_industry_board_defs(level, boards)
+    return boards
 
 
 # ── Industry boards (TickFlow → AkShare-EM) ────────────────────────────────────
@@ -217,7 +239,12 @@ def _cons_tickflow(board_name: str) -> list[str]:
 
     ``board_name`` may be prefixed with ``SW1:`` or ``SW2:`` to indicate the level.
     If no prefix, defaults to SW1.
+
+    Constituent codes are cached permanently in the DB (``BoardConstituent``
+    table) and refreshed once a day, so a hot cache avoids the TickFlow quotes
+    call entirely.
     """
+    from . import cache_store
     from tradingagents.dataflows.tickflow_data import tf_universe_symbols
 
     level = 1
@@ -228,6 +255,10 @@ def _cons_tickflow(board_name: str) -> list[str]:
     elif board_name.startswith("SW2:"):
         level = 2
         key = board_name[4:]
+
+    cached = cache_store.get_board_member_codes(level, key, _BOARD_CONS_STALE_DAYS)
+    if cached is not None:
+        return cached
 
     # Build the lookup key used in _TF_BOARD_IDS
     lookup_key = f"SW{level}:{key}"
@@ -251,6 +282,8 @@ def _cons_tickflow(board_name: str) -> list[str]:
             if six not in seen:
                 seen.add(six)
                 codes.append(six)
+    if codes:
+        cache_store.upsert_board_member_codes(level, key, codes)
     return codes
 
 

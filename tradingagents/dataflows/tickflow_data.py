@@ -736,33 +736,65 @@ _FIN_BATCH = 100
 _INSTR_BATCH = 200
 
 
+# Share counts/names change only on placements, buybacks, or renames — once
+# cached, a code is considered fresh for this many days before TickFlow is
+# queried again.
+_INSTR_STALE_DAYS = 30
+
+
 def tf_instruments(tf_symbols: list[str]) -> dict:
     """Batch instrument metadata. Returns {6-digit code: {total_shares, float_shares, name}}.
 
-    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH"). Tolerant of
-    partial failure: a batch that errors after retries is logged and skipped so a
-    single transient blip doesn't sink the whole whole-market enrichment.
+    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH"). Cache strategy:
+    results are persisted permanently in the DB and only re-fetched for codes
+    missing or older than ``_INSTR_STALE_DAYS``, so a hot cache turns the usual
+    ~28 batches (whole market) into zero TickFlow calls. Tolerant of partial
+    failure: a batch that errors after retries is logged and skipped so a single
+    transient blip doesn't sink the whole enrichment.
     """
-    out: dict[str, dict] = {}
-    for i in range(0, len(tf_symbols), _INSTR_BATCH):
-        chunk = tf_symbols[i:i + _INSTR_BATCH]
-        try:
-            resp = _post("instruments", {"symbols": chunk})
-        except TickFlowError as e:
-            logger.warning("tf_instruments: batch %d skipped (%s)", i // _INSTR_BATCH, e)
-            continue
-        for item in resp.get("data", []) or []:
-            # Key by the symbol's 6-digit prefix — TickFlow's ``code`` field is not
-            # reliably unique across the universe (collapses ~5500 → ~2900).
-            six = item.get("symbol", "").split(".")[0].zfill(6)
-            if not six.isdigit():
+    from . import cache_store
+
+    six_by_sym: dict[str, str] = {}
+    for sym in tf_symbols:
+        six = sym.split(".")[0].zfill(6)
+        if six.isdigit():
+            six_by_sym[six] = sym
+
+    codes = list(six_by_sym.keys())
+    stale = cache_store.get_stale_instrument_codes(codes, _INSTR_STALE_DAYS)
+
+    fetched: dict[str, dict] = {}
+    if stale:
+        to_fetch = [six_by_sym[c] for c in stale]
+        for i in range(0, len(to_fetch), _INSTR_BATCH):
+            chunk = to_fetch[i:i + _INSTR_BATCH]
+            try:
+                resp = _post("instruments", {"symbols": chunk})
+            except TickFlowError as e:
+                logger.warning("tf_instruments: batch %d skipped (%s)", i // _INSTR_BATCH, e)
                 continue
-            ext = item.get("ext") or {}
-            out[six] = {
-                "total_shares": ext.get("total_shares"),
-                "float_shares": ext.get("float_shares"),
-                "name": item.get("name", ""),
-            }
+            for item in resp.get("data", []) or []:
+                # Key by the symbol's 6-digit prefix — TickFlow's ``code`` field is not
+                # reliably unique across the universe (collapses ~5500 → ~2900).
+                six = item.get("symbol", "").split(".")[0].zfill(6)
+                if not six.isdigit():
+                    continue
+                ext = item.get("ext") or {}
+                fetched[six] = {
+                    "total_shares": ext.get("total_shares"),
+                    "float_shares": ext.get("float_shares"),
+                    "name": item.get("name", ""),
+                }
+        if fetched:
+            cache_store.upsert_instruments(fetched)
+        logger.info("tf_instruments: %d/%d codes refreshed from TickFlow (%.0f%% cache hit)",
+                     len(stale), len(codes), 100 * (1 - len(stale) / max(len(codes), 1)))
+
+    out = cache_store.get_instruments(codes)
+    # DB unavailable (standalone SDK) or row not yet visible: fall back to the
+    # freshly fetched data for any code missing from the cache read.
+    for code, v in fetched.items():
+        out.setdefault(code, v)
     return out
 
 
