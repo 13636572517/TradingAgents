@@ -1040,7 +1040,7 @@ def tf_batch_klines_history(tf_symbols: list[str], count: int = 2500,
     if not tf_symbols:
         return {}
 
-    out: dict[str, list[dict]] = {}
+    out: dict[str, bool] = {}
     for i in range(0, len(tf_symbols), _KLINE_BATCH):
         if i > 0:
             time.sleep(0.5)
@@ -1061,7 +1061,7 @@ def tf_batch_klines_history(tf_symbols: list[str], count: int = 2500,
             if not bars:
                 continue
             cache_store.upsert_ohlcv(tf_sym, bars, adjust)
-            out[tf_sym] = bars
+            out[tf_sym] = True
     return out
 
 
