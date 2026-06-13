@@ -68,6 +68,25 @@ def get_max_ohlcv_date(tf_symbol: str, adjust: str = "forward") -> Optional[str]
         db.close()
 
 
+def get_min_ohlcv_date(tf_symbol: str, adjust: str = "forward") -> Optional[str]:
+    """Return the earliest cached date for this symbol, or None if cache is empty."""
+    db = _session()
+    if db is None:
+        return None
+    try:
+        StockOHLCV, _ = _models()
+        if StockOHLCV is None:
+            return None
+        from sqlalchemy import func
+        row = (db.query(func.min(StockOHLCV.date))
+                 .filter(StockOHLCV.symbol == tf_symbol,
+                         StockOHLCV.adjust == adjust)
+                 .scalar())
+        return row
+    finally:
+        db.close()
+
+
 def get_ohlcv_range(tf_symbol: str, start_date: str, end_date: str,
                     adjust: str = "forward") -> list[dict]:
     """Return cached bars in ``[start_date, end_date]`` ordered by date asc."""

@@ -194,33 +194,46 @@ def _fetch_klines_raw(tf_code: str, start_date: str, end_date: str,
 def _load_ohlcv_cached(tf_code: str, start_date: str, end_date: str,
                         adjust: str = "forward") -> list[dict]:
     """Return bars for [start_date, end_date], reading from the local cache and
-    only hitting TickFlow for the delta we don't have yet.
+    only hitting TickFlow for the gaps we don't have yet.
 
-    Historical bars never change, so the cache is append-only on date. On the
-    first call for a symbol we fetch the full requested range; subsequent calls
-    fetch only (cached_max_date, today].
+    Historical bars never change, so once fetched they're cached forever. A
+    symbol's cache can have gaps on *both* ends relative to what's requested:
+
+      - forward gap:  (cached_max, end_date] — e.g. today's bar hasn't landed yet.
+      - backward gap: [start_date, cached_min) — e.g. the symbol was first
+        warmed by a short range (nightly backfill pulls 5 days) and a later
+        call asks for a much wider history (1Y/2Y chart).
+
+    Both gaps are fetched and merged into the cache before reading back the
+    requested range.
     """
     from . import cache_store
 
+    cached_min = cache_store.get_min_ohlcv_date(tf_code, adjust)
     cached_max = cache_store.get_max_ohlcv_date(tf_code, adjust)
-    # Decide what to fetch from TickFlow.
-    if cached_max is None:
-        fetch_start, fetch_end = start_date, end_date
-    elif cached_max < end_date:
-        # Step one day forward to avoid re-pulling the boundary bar we already have.
-        nxt = (datetime.strptime(cached_max, "%Y-%m-%d")
-               + timedelta(days=1)).strftime("%Y-%m-%d")
-        fetch_start, fetch_end = max(nxt, start_date), end_date
-    else:
-        fetch_start = fetch_end = None  # fully covered
 
-    if fetch_start and fetch_end and fetch_start <= fetch_end:
+    if cached_min is None or cached_max is None:
+        gaps = [(start_date, end_date)]
+    else:
+        gaps = []
+        if start_date < cached_min:
+            prev = (datetime.strptime(cached_min, "%Y-%m-%d")
+                    - timedelta(days=1)).strftime("%Y-%m-%d")
+            gaps.append((start_date, min(prev, end_date)))
+        if cached_max < end_date:
+            nxt = (datetime.strptime(cached_max, "%Y-%m-%d")
+                   + timedelta(days=1)).strftime("%Y-%m-%d")
+            gaps.append((max(nxt, start_date), end_date))
+
+    for fetch_start, fetch_end in gaps:
+        if fetch_start > fetch_end:
+            continue
         try:
             fresh = _fetch_klines_raw(tf_code, fetch_start, fetch_end, adjust)
             if fresh:
                 cache_store.upsert_ohlcv(tf_code, fresh, adjust)
         except TickFlowError as e:
-            logger.warning("ohlcv delta fetch failed for %s (%s..%s): %s",
+            logger.warning("ohlcv gap fetch failed for %s (%s..%s): %s",
                            tf_code, fetch_start, fetch_end, e)
 
     return cache_store.get_ohlcv_range(tf_code, start_date, end_date, adjust)
