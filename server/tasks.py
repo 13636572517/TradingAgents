@@ -862,7 +862,23 @@ def full_market_backfill(self):
     tf_symbols = tf_universe_symbols(["CN_Equity_A"])
     logger.info("full_market_backfill: %d symbols in CN_Equity_A universe", len(tf_symbols))
 
-    ohlcv_result = tf_batch_klines_history(tf_symbols, count=2500)
+    # Resume support: skip symbols already covered (have bars fetched within last 30 days)
+    cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text as _text
+        rows = db.execute(
+            _text("SELECT DISTINCT symbol FROM stock_ohlcv WHERE fetched_at >= :cutoff"),
+            {"cutoff": cutoff},
+        ).fetchall()
+        done_symbols = {r[0] for r in rows}
+    finally:
+        db.close()
+    pending_symbols = [s for s in tf_symbols if s not in done_symbols]
+    logger.info("full_market_backfill: %d already done, %d pending",
+                len(done_symbols), len(pending_symbols))
+
+    ohlcv_result = tf_batch_klines_history(pending_symbols, count=2500)
     logger.info("full_market_backfill: OHLCV history cached for %d/%d symbols",
                  len(ohlcv_result), len(tf_symbols))
 
