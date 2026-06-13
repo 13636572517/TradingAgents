@@ -10,6 +10,7 @@ git pull origin main
 
 echo "==> [2/4] 构建 Docker 镜像（首次较慢，约 5-10 分钟）..."
 docker compose -f docker-compose.prod.yml build
+docker builder prune --keep-storage=2GB -f
 
 echo "==> [3/4] 重启服务容器..."
 docker compose -f docker-compose.prod.yml up -d
