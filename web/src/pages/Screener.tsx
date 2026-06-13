@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
-import type { ScreeningRun, ScreeningCandidate, UndervaluedBoard } from "../types"
+import type { ScreeningRun, ScreeningCandidate, BoardValuation } from "../types"
 
 const DEPTH_LABEL: Record<number, string> = { 1: "快速", 2: "标准", 3: "深度" }
 
@@ -96,9 +96,16 @@ export default function Screener() {
     }
   }
 
-  const boards: UndervaluedBoard[] = run?.summary?.undervalued_boards ?? []
+  const allBoards: BoardValuation[] = run?.summary?.all_boards ?? []
   const candidates = run?.candidates ?? []
-  const byBoard = boards.map((b) => ({
+
+  // Sort: undervalued first (by combined percentile), then others by PE percentile
+  const sortedBoards = [...allBoards].sort((a, b) => {
+    if (a.is_undervalued !== b.is_undervalued) return a.is_undervalued ? -1 : 1
+    return ((a.pe_pct ?? 100) + (a.pb_pct ?? 100)) - ((b.pe_pct ?? 100) + (b.pb_pct ?? 100))
+  })
+
+  const byBoard = sortedBoards.map((b) => ({
     board: b,
     items: candidates.filter((c) => c.board_name === b.name)
       .sort((a, b2) => (a.rank_in_board ?? 99) - (b2.rank_in_board ?? 99)),
@@ -158,7 +165,10 @@ export default function Screener() {
               <span>扫描 {run.summary.boards_scanned} 个板块</span>
             )}
             {run.summary?.undervalued_count !== undefined && (
-              <span>低估 {run.summary.undervalued_count} 个</span>
+              <span className="text-amber-300">低估 {run.summary.undervalued_count} 个</span>
+            )}
+            {run.summary?.all_boards !== undefined && (
+              <span>共 {run.summary.all_boards.length} 个板块</span>
             )}
             {run.summary?.candidate_count !== undefined && (
               <span>候选 {run.summary.candidate_count} 只</span>
@@ -178,31 +188,50 @@ export default function Screener() {
           )}
 
           {run.status === "complete" && byBoard.length === 0 && (
-            <p className="text-gray-500 text-sm py-8 text-center">本次未发现满足条件的低估板块。</p>
+            <p className="text-gray-500 text-sm py-8 text-center">本次未扫描到任何板块数据。</p>
           )}
 
           {/* Boards + candidates */}
           <div className="flex flex-col gap-5">
             {byBoard.map(({ board, items }) => (
-              <div key={board.name} className="border border-border rounded-lg bg-surface overflow-hidden">
+              <div key={board.name} className={`border rounded-lg overflow-hidden transition-colors ${
+                board.is_undervalued
+                  ? "border-amber-500/40 bg-amber-950/10"
+                  : "border-border bg-surface"
+              }`}>
                 {/* Board header */}
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-amber-950/15 border-b border-border">
+                <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b ${
+                  board.is_undervalued
+                    ? "border-amber-500/30 bg-amber-900/20"
+                    : "border-border bg-surface/50"
+                }`}>
                   <div className="flex items-center gap-3">
                     <span className="font-medium text-gray-100">{board.name}</span>
                     <span className="text-xs text-gray-400">
                       PE {fmtNum(board.pe)} · PB {fmtNum(board.pb)}
                     </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-buy/10 text-buy border border-buy/30">
-                      PE分位 {fmtPct(board.pe_pct)} / PB分位 {fmtPct(board.pb_pct)}
-                    </span>
+                    {board.pe_pct !== null && board.pb_pct !== null && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                        board.is_undervalued
+                          ? "bg-buy/10 text-buy border-buy/30"
+                          : "bg-gray-500/10 text-gray-400 border-gray-500/30"
+                      }`}>
+                        PE分位 {fmtPct(board.pe_pct)} / PB分位 {fmtPct(board.pb_pct)}
+                      </span>
+                    )}
+                    {board.is_undervalued && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        低估 ✓
+                      </span>
+                    )}
                     {board.valuation_method === "cross_section" && (
                       <span className="text-[10px] text-gray-500" title="历史数据不足，使用同日跨板块横截面分位">横截面</span>
                     )}
                   </div>
                   <button onClick={() => handleAnalyzeBoard(board.name)}
-                    disabled={batchBoard === board.name}
+                    disabled={batchBoard === board.name || items.length === 0}
                     className="text-xs px-3 py-1 rounded-full border border-border text-gray-400 hover:border-accent hover:text-accent transition-colors disabled:opacity-50">
-                    {batchBoard === board.name ? "提交中…" : `一键分析整组 (${DEPTH_LABEL[depth]})`}
+                    {batchBoard === board.name ? "提交中…" : `一键分析 (${DEPTH_LABEL[depth]})`}
                   </button>
                 </div>
 

@@ -204,6 +204,18 @@ export interface ScreeningCandidate {
   created_at: string
 }
 
+export interface BoardValuation {
+  name: string
+  pe: number | null
+  pb: number | null
+  pe_pct: number | null
+  pb_pct: number | null
+  is_undervalued: boolean
+  valuation_method: "historical" | "cross_section" | null
+  pct_change: number | null
+  member_count: number | null
+}
+
 export interface UndervaluedBoard {
   name: string
   pe: number | null
@@ -222,6 +234,7 @@ export interface ScreeningSummary {
   roe_available?: boolean
   moneyflow_available?: boolean
   undervalued_boards?: UndervaluedBoard[]
+  all_boards?: BoardValuation[]
 }
 
 export interface ScreeningRun {

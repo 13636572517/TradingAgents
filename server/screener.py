@@ -308,8 +308,11 @@ def run_screening(db: Session, params: Optional[dict] = None,
     roe_map = sd.get_roe_map()
     flow_map = sd.get_moneyflow_map()
 
+    # Score ALL boards — undervalued ones will be highlighted in the UI.
+    # Previously only undervalued boards were scored, hiding candidates from
+    # every other board. Now every board gets leader scoring.
     candidates: list[dict] = []
-    for board in undervalued:
+    for board in board_vals:
         leaders = score_leaders(board, spot, roe_map, flow_map, p)
         for ld in leaders:
             candidates.append({
@@ -327,6 +330,22 @@ def run_screening(db: Session, params: Optional[dict] = None,
         "candidate_count": len(candidates),
         "roe_available": bool(roe_map),
         "moneyflow_available": bool(flow_map),
+        # ALL boards with percentile info (not just undervalued ones)
+        "all_boards": [
+            {
+                "name": b["name"],
+                "pe": b.get("pe"),
+                "pb": b.get("pb"),
+                "pe_pct": b.get("pe_pct"),
+                "pb_pct": b.get("pb_pct"),
+                "is_undervalued": b in undervalued,
+                "valuation_method": b.get("valuation_method"),
+                "pct_change": b.get("pct_change"),
+                "member_count": b.get("member_count"),
+            }
+            for b in board_vals
+            if b.get("pe") or b.get("pb")  # skip boards with no valuation data
+        ],
     }
     return {
         "run_date": run_date,
