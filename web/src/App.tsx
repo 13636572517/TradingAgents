@@ -13,6 +13,7 @@ import StatsPage from "./pages/StatsPage"
 import AdminPage from "./pages/AdminPage"
 import StrategyDashboard from "./pages/StrategyDashboard"
 import Screener from "./pages/Screener"
+import BoardDetail from "./pages/BoardDetail"
 import { api } from "./api/client"
 
 function AppShell() {
@@ -59,6 +60,7 @@ function AppLayout({ unseen, setUnseen }: { unseen: number; setUnseen: (n: numbe
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/strategies" element={<StrategyDashboard />} />
           <Route path="/screener" element={<Screener />} />
+          <Route path="/screener/runs/:runId/boards/:level/:name" element={<BoardDetail />} />
         </Routes>
       </main>
       <BottomNav unseen={unseen} onHistoryClick={handleHistoryClick} />

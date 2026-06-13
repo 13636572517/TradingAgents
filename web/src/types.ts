@@ -242,6 +242,32 @@ export interface ScreeningSummary {
   all_boards?: BoardValuation[]
 }
 
+export interface BoardMember {
+  code: string
+  ticker: string
+  name: string
+  price: number | null
+  pct_change: number | null
+  amount: number | null
+  pe: number | null
+  pb: number | null
+  roe: number | null
+  total_mktcap: number | null
+  is_candidate: boolean
+  candidate_id: string | null
+  score: number | null
+  rank_in_board: number | null
+  reason: string | null
+  analysis_id: string | null
+}
+
+export interface BoardMembersResponse {
+  run_id: string
+  board_name: string
+  level: number
+  members: BoardMember[]
+}
+
 export interface ScreeningRun {
   id: string
   run_date: string

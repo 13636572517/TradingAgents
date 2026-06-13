@@ -4,6 +4,7 @@ import type {
   Analysis, AnalysisListResponse, ProgressEvent, Settings, SettingsUpdate,
   ModelsResponse, Provider, TestResult, AggregateStats, KLineResponse,
   AuthToken, AuthUser, AdminUser, ShareUser, Strategy, ScreeningRun,
+  BoardMembersResponse,
 } from "../types"
 
 const http = axios.create({ baseURL: "/api" })
@@ -156,6 +157,10 @@ export const api = {
     http.post<Analysis>(`/screener/candidates/${candidateId}/analyze`, null, { params: { depth } }).then((r) => r.data),
   analyzeAllCandidates: (runId: string, depth = 1, board_name?: string) =>
     http.post<Analysis[]>(`/screener/runs/${runId}/analyze-all`, null, { params: { depth, board_name } }).then((r) => r.data),
+  getBoardMembers: (runId: string, level: number, boardName: string) =>
+    http.get<BoardMembersResponse>(
+      `/screener/runs/${runId}/boards/${level}/${encodeURIComponent(boardName)}/members`
+    ).then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

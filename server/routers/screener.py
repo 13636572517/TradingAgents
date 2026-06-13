@@ -104,6 +104,74 @@ def _run_detail(db: Session, run: ScreeningRun) -> ScreeningRunDetailOut:
     return detail
 
 
+# ── Board drill-down (detail page) ─────────────────────────────────────────────
+
+@router.get("/runs/{run_id}/boards/{level}/{board_name}/members")
+def get_board_members_endpoint(
+    run_id: str,
+    level: int,
+    board_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List every constituent of a single SW board for the run's detail page.
+
+    Annotates each member with whether it was picked as a candidate during
+    screening (and links to its analysis if one already exists), so the
+    frontend can highlight 已入选 rows and jump straight to a report.
+    """
+    from tradingagents.dataflows.sector_data import get_board_members_snapshot
+
+    run = db.get(ScreeningRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="筛选记录不存在")
+
+    members = get_board_members_snapshot(board_name, level)
+    if not members:
+        raise HTTPException(status_code=404,
+                            detail=f"未能获取板块「{board_name}」成分股")
+
+    cand_rows = (
+        db.query(ScreeningCandidate)
+        .filter(ScreeningCandidate.run_id == run_id,
+                ScreeningCandidate.board_name == board_name,
+                ScreeningCandidate.board_level == level)
+        .all()
+    )
+    cand_by_code = {c.ticker.split(".")[0]: c for c in cand_rows}
+
+    for m in members:
+        c = cand_by_code.get(m["code"])
+        if c:
+            m["is_candidate"] = True
+            m["candidate_id"] = c.id
+            m["score"] = c.score
+            m["rank_in_board"] = c.rank_in_board
+            m["reason"] = c.reason
+            m["analysis_id"] = c.analysis_id
+        else:
+            m["is_candidate"] = False
+            m["candidate_id"] = None
+            m["score"] = None
+            m["rank_in_board"] = None
+            m["reason"] = None
+            m["analysis_id"] = None
+
+    # Candidates first (by rank), non-candidates by market cap desc
+    members.sort(key=lambda m: (
+        not m["is_candidate"],
+        m.get("rank_in_board") or 999,
+        -(m.get("total_mktcap") or 0),
+    ))
+
+    return {
+        "run_id": run_id,
+        "board_name": board_name,
+        "level": level,
+        "members": members,
+    }
+
+
 # ── Trigger analysis on candidates ──────────────────────────────────────────────────
 
 @router.post("/candidates/{candidate_id}/analyze", response_model=AnalysisOut, status_code=201)

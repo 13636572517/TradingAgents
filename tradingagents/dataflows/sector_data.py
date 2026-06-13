@@ -360,6 +360,85 @@ def _pct(v) -> Optional[float]:
     return f * 100 if f is not None else None
 
 
+# ── Per-board snapshot (drill-down for the screener detail page) ────────────────
+
+def get_board_members_snapshot(board_name: str, level: int = 1,
+                                ttl: float = 300) -> list[dict]:
+    """Enriched list of every constituent stock for a single SW board.
+
+    Scoped per-board (1 quotes call + 1-2 financials/instruments batches)
+    rather than reusing get_market_spot, so the API server can render the
+    detail page without paying for a whole-market refresh when its cache is
+    cold. Cached for ``ttl`` seconds to keep repeated clicks cheap.
+
+    Returns a list of {code, name, ticker, price, pct_change, amount, pe, pb,
+    roe, total_mktcap} dicts. Empty list if the board can't be resolved.
+    """
+    cache_key = f"board_members:{level}:{board_name}"
+    cached = _cache_get(cache_key, ttl)
+    if cached is not None:
+        return cached  # type: ignore
+
+    from tradingagents.dataflows.tickflow_data import (
+        _post, tf_instruments, tf_financials_valuation)
+
+    key = f"SW{level}:{board_name}"
+    ids = _TF_BOARD_IDS.get(key)
+    if ids is None:
+        _discover_boards(level)
+        ids = _TF_BOARD_IDS.get(key, [])
+    if not ids:
+        return []
+
+    try:
+        resp = _post("quotes", {"universes": ids})
+    except Exception as e:
+        logger.warning("get_board_members_snapshot: quotes failed for %s — %s",
+                       key, e)
+        return []
+    items = resp.get("data", []) or []
+
+    quotes: dict[str, tuple] = {}
+    tf_syms: list[str] = []
+    for it in items:
+        sym = it.get("symbol", "")
+        six = sym.split(".")[0].zfill(6)
+        if not six.isdigit() or six in quotes:
+            continue
+        quotes[six] = (sym, it)
+        tf_syms.append(sym)
+    if not tf_syms:
+        return []
+
+    instr = tf_instruments(tf_syms)
+    fin = tf_financials_valuation(tf_syms)
+
+    members: list[dict] = []
+    for six, (sym, it) in quotes.items():
+        ext = it.get("ext") or {}
+        price = _to_float(it.get("last_price"))
+        im = instr.get(six) or {}
+        fm = fin.get(six) or {}
+        tshare = _to_float(im.get("total_shares"))
+        bps = _to_float(fm.get("bps"))
+        eps_ttm = _to_float(fm.get("eps_ttm"))
+        members.append({
+            "code": six,
+            "ticker": code_to_yf(six),
+            "name": ext.get("name") or im.get("name") or "",
+            "price": price,
+            "pct_change": _pct(ext.get("change_pct")),
+            "amount": _to_float(it.get("amount")),
+            "pe": round(price / eps_ttm, 2) if (price and eps_ttm and eps_ttm > 0) else None,
+            "pb": round(price / bps, 4) if (price and bps and bps > 0) else None,
+            "total_mktcap": (price * tshare) if (price and tshare) else None,
+            "roe": _to_float(fm.get("roe")),
+        })
+    members.sort(key=lambda m: -(m.get("total_mktcap") or 0))
+    _cache_set(cache_key, members)
+    return members
+
+
 def _spot_akshare_em() -> dict:
     import akshare as ak
     df = ak.stock_zh_a_spot_em()

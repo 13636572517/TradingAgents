@@ -2,12 +2,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
-import type { ScreeningRun, ScreeningCandidate, BoardValuation } from "../types"
-
-function fmtYi(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—"
-  return `${(v / 1e8).toFixed(1)}亿`
-}
+import type { ScreeningRun, BoardValuation } from "../types"
 
 function fmtNum(v: number | null | undefined, suffix = ""): string {
   if (v === null || v === undefined) return "—"
@@ -22,14 +17,12 @@ function fmtPct(v: number | null | undefined): string {
 // ── Board Card ────────────────────────────────────────────────────────────────
 
 function BoardCard({
-  board, candidates, onAnalyze, analyzingId,
+  board, candidateCount, onOpen,
 }: {
   board: BoardValuation
-  candidates: ScreeningCandidate[]
-  onAnalyze: (c: ScreeningCandidate) => void
-  analyzingId: string | null
+  candidateCount: number
+  onOpen: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const pctClass = board.is_undervalued
     ? "border-amber-500/50 bg-amber-950/10 hover:bg-amber-950/20"
     : "border-border bg-surface hover:bg-white/[0.02]"
@@ -37,17 +30,24 @@ function BoardCard({
   return (
     <div
       className={`rounded-lg border overflow-hidden cursor-pointer transition-colors ${pctClass}`}
-      onClick={() => setExpanded((v) => !v)}
+      onClick={onOpen}
     >
-      {/* Card body */}
       <div className="px-3 py-2.5">
         <div className="flex items-center justify-between mb-1.5">
           <span className="font-medium text-gray-100 text-sm truncate">{board.name}</span>
-          {board.is_undervalued && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 ml-1">
-              低估
-            </span>
-          )}
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            {board.is_undervalued && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                低估
+              </span>
+            )}
+            {candidateCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
+                候选 {candidateCount}
+              </span>
+            )}
+            <span className="text-gray-500 text-[10px]">›</span>
+          </div>
         </div>
         <div className="flex items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 flex-wrap">
           <span>PE {fmtNum(board.pe)}</span>
@@ -65,49 +65,6 @@ function BoardCard({
           <span>{board.member_count ?? "—"} 只</span>
         </div>
       </div>
-
-      {/* Expanded: candidate list */}
-      {expanded && candidates.length > 0 && (
-        <div className="border-t border-border divide-y divide-border" onClick={(e) => e.stopPropagation()}>
-          {candidates.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 px-3 py-2">
-              <span className="w-5 text-center text-[10px] text-gray-600">#{c.rank_in_board}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-gray-200 text-xs truncate">{c.ticker_name ?? c.ticker}</span>
-                  <span className="text-[10px] text-gray-600">{c.ticker}</span>
-                  {c.score !== null && (
-                    <span className="text-[9px] px-1 py-px rounded bg-accent/10 text-accent shrink-0">
-                      {c.score}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-gray-500 mt-0.5 flex gap-x-2">
-                  <span>市值 {fmtYi(c.total_mktcap)}</span>
-                  <span>PE {fmtNum(c.pe)}</span>
-                  {c.roe !== null && <span>ROE {fmtNum(c.roe, "%")}</span>}
-                </div>
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); onAnalyze(c) }}
-                disabled={analyzingId === c.id}
-                className={`text-[10px] px-2 py-1 rounded-full shrink-0 transition-colors ${
-                  c.analysis_id
-                    ? "border border-accent/40 text-accent"
-                    : "bg-accent/15 border border-accent text-accent"
-                } disabled:opacity-50`}
-              >
-                {analyzingId === c.id ? "提交中" : c.analysis_id ? "查看" : "分析"}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {expanded && candidates.length === 0 && (
-        <div className="border-t border-border px-3 py-2 text-[10px] text-gray-600">
-          暂无符合条件的候选股
-        </div>
-      )}
     </div>
   )
 }
@@ -121,7 +78,6 @@ export default function Screener() {
   const [starting, setStarting] = useState(false)
   const [autoAnalyze, setAutoAnalyze] = useState(false)
   const [depth, setDepth] = useState(1)
-  const [analyzingId, setAnalyzingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<"sw1" | "sw2">("sw1")
 
@@ -160,19 +116,6 @@ export default function Screener() {
       setError(e?.response?.data?.detail ?? "启动筛选失败")
     } finally {
       setStarting(false)
-    }
-  }
-
-  const handleAnalyze = async (c: ScreeningCandidate) => {
-    if (c.analysis_id) { navigate(`/report/${c.analysis_id}`); return }
-    setAnalyzingId(c.id)
-    try {
-      const a = await api.analyzeCandidate(c.id, depth)
-      navigate(`/report/${a.id}`)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? "分析启动失败")
-    } finally {
-      setAnalyzingId(null)
     }
   }
 
@@ -311,12 +254,10 @@ export default function Screener() {
                   <BoardCard
                     key={`${tab}:${board.name}`}
                     board={board}
-                    candidates={filteredCandidates
-                      .filter((c) => c.board_name === board.name)
-                      .sort((a, b2) => (a.rank_in_board ?? 99) - (b2.rank_in_board ?? 99))
-                    }
-                    onAnalyze={handleAnalyze}
-                    analyzingId={analyzingId}
+                    candidateCount={filteredCandidates.filter((c) => c.board_name === board.name).length}
+                    onOpen={() => run && navigate(
+                      `/screener/runs/${run.id}/boards/${board.level}/${encodeURIComponent(board.name)}`
+                    )}
                   />
                 ))}
               </div>
