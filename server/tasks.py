@@ -842,3 +842,36 @@ def nightly_cache_backfill(self):
         "nightly_cache_backfill: %d symbols, ohlcv ok=%d fail=%d, financials updated=%d",
         len(tf_symbols), ohlcv_ok, ohlcv_fail, fin_count,
     )
+
+
+@celery_app.task(bind=True, name="server.tasks.full_market_backfill")
+def full_market_backfill(self):
+    """One-time backfill of ~10 years of OHLCV + financial-statement history
+    for the entire CN A-share universe.
+
+    Not on the beat schedule — trigger manually (e.g. via
+    ``full_market_backfill.delay()`` from a shell) during off-peak hours.
+    At ~28 kline batches (200 symbols/req) + ~220 financial batches
+    (100 symbols/req x4 statements) this is well within TickFlow Expert's
+    120/min limits and should complete in a few minutes.
+    """
+    from tradingagents.dataflows.tickflow_data import (
+        tf_universe_symbols, tf_batch_klines_history, tf_financials_full_history,
+    )
+
+    tf_symbols = tf_universe_symbols(["CN_Equity_A"])
+    logger.info("full_market_backfill: %d symbols in CN_Equity_A universe", len(tf_symbols))
+
+    ohlcv_result = tf_batch_klines_history(tf_symbols, count=2500)
+    logger.info("full_market_backfill: OHLCV history cached for %d/%d symbols",
+                 len(ohlcv_result), len(tf_symbols))
+
+    start_date = (datetime.now() - timedelta(days=365 * 10)).strftime("%Y%m%d")
+    fin_totals = tf_financials_full_history(tf_symbols, start_date)
+    logger.info("full_market_backfill: financial records upserted: %s", fin_totals)
+
+    return {
+        "symbol_count": len(tf_symbols),
+        "ohlcv_symbols_cached": len(ohlcv_result),
+        "financials": fin_totals,
+    }

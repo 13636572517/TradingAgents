@@ -161,22 +161,19 @@ def _ts_to_date(ts_ms: int) -> str:
 
 # ── Price / OHLCV ──────────────────────────────────────────────────────────────
 
-def _fetch_klines_raw(tf_code: str, start_date: str, end_date: str,
-                       adjust: str = "forward") -> list[dict]:
-    """Pull raw OHLCV bars from TickFlow for [start_date, end_date]. No cache."""
-    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
-    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399999
-    resp = _get("klines", {
-        "symbol": tf_code, "period": "1d",
-        "start_time": start_ts, "end_time": end_ts, "adjust": adjust,
-    })
-    data = resp.get("data", {})
+def _parse_kline_arrays(data: dict, start_date: Optional[str] = None,
+                         end_date: Optional[str] = None) -> list[dict]:
+    """Convert a TickFlow kline ``data`` object (parallel arrays keyed by
+    ``timestamp``/``open``/.../``prev_close``) into a list of bar dicts,
+    optionally filtered to ``[start_date, end_date]``."""
     if not data or not data.get("timestamp"):
         return []
     bars = []
     for i, ts in enumerate(data["timestamp"]):
         date_str = _ts_to_date(ts)
-        if date_str < start_date or date_str > end_date:
+        if start_date and date_str < start_date:
+            continue
+        if end_date and date_str > end_date:
             continue
         bars.append({
             "date": date_str,
@@ -189,6 +186,18 @@ def _fetch_klines_raw(tf_code: str, start_date: str, end_date: str,
             "prev_close": data["prev_close"][i] if i < len(data.get("prev_close", [])) else None,
         })
     return bars
+
+
+def _fetch_klines_raw(tf_code: str, start_date: str, end_date: str,
+                       adjust: str = "forward") -> list[dict]:
+    """Pull raw OHLCV bars from TickFlow for [start_date, end_date]. No cache."""
+    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399999
+    resp = _get("klines", {
+        "symbol": tf_code, "period": "1d",
+        "start_time": start_ts, "end_time": end_ts, "adjust": adjust,
+    })
+    return _parse_kline_arrays(resp.get("data", {}), start_date, end_date)
 
 
 def _load_ohlcv_cached(tf_code: str, start_date: str, end_date: str,
@@ -735,6 +744,9 @@ def _post(path: str, body: dict):
 _FIN_BATCH = 100
 _INSTR_BATCH = 200
 
+# TickFlow Expert 日线K线-批量查询 limit: 120/min, 200 symbols/req.
+_KLINE_BATCH = 200
+
 
 # Share counts/names change only on placements, buybacks, or renames — once
 # cached, a code is considered fresh for this many days before TickFlow is
@@ -915,6 +927,49 @@ def tf_financials_valuation(tf_symbols: list[str], start_year: int = None) -> di
     return out
 
 
+def tf_financials_full_history(tf_symbols: list[str], start_date: str,
+                                statements: Optional[list[str]] = None) -> dict[str, int]:
+    """Batch-fetch and cache full financial-statement history for many symbols.
+
+    ``tf_symbols`` are TickFlow-format symbols. ``start_date`` is ``YYYYMMDD``
+    (e.g. 10 years ago), passed straight through to each statement endpoint's
+    ``start_date`` filter. ``statements`` defaults to all four types
+    (income/balance/cashflow/metrics). Requests are chunked at ``_FIN_BATCH``
+    (100/req, matching the TickFlow Expert 财务数据 limit). Returns
+    ``{statement: total records upserted}``.
+    """
+    from . import cache_store
+
+    if not tf_symbols:
+        return {}
+    if statements is None:
+        statements = list(_STATEMENT_PATHS.keys())
+
+    totals: dict[str, int] = {}
+    for statement in statements:
+        path = _STATEMENT_PATHS.get(statement)
+        if path is None:
+            continue
+        written = 0
+        for i in range(0, len(tf_symbols), _FIN_BATCH):
+            if i > 0:
+                time.sleep(0.5)
+            chunk = tf_symbols[i:i + _FIN_BATCH]
+            try:
+                resp = _get(path, {"symbols": ",".join(chunk), "start_date": start_date})
+            except TickFlowError as e:
+                logger.warning("tf_financials_full_history: %s batch %d skipped (%s)",
+                               statement, i // _FIN_BATCH, e)
+                continue
+            for sym, records in (resp.get("data") or {}).items():
+                if records:
+                    written += cache_store.upsert_financials(sym, statement, records)
+        totals[statement] = written
+        logger.info("tf_financials_full_history: %s -> %d records upserted across %d symbols",
+                     statement, written, len(tf_symbols))
+    return totals
+
+
 def tf_batch_quotes(symbols: list[str]) -> dict:
     """Batch real-time quotes for multiple tickers (Yahoo Finance format).
 
@@ -966,6 +1021,47 @@ def tf_batch_klines(symbols: list[str], period: str = "1d",
     for tf_sym, kdata in resp.get("data", {}).items():
         six = _from_tf_code(tf_sym).split(".")[0]
         out[six] = kdata
+    return out
+
+
+def tf_batch_klines_history(tf_symbols: list[str], count: int = 2500,
+                             period: str = "1d", adjust: str = "forward") -> dict[str, list[dict]]:
+    """Batch-fetch deep daily history via ``/v1/klines/batch`` and cache it.
+
+    ``tf_symbols`` are TickFlow-format symbols (e.g. "600519.SH"). Requests are
+    chunked at ``_KLINE_BATCH`` (200/req, matching the TickFlow Expert 日线K线
+    批量查询 limit) and ``count`` (up to ~2500 ≈ 10 years of trading days) bars
+    per symbol are requested per chunk. Each symbol's bars are upserted into the
+    OHLCV cache via ``cache_store.upsert_ohlcv`` and also returned, keyed by
+    TickFlow-format symbol.
+    """
+    from . import cache_store
+
+    if not tf_symbols:
+        return {}
+
+    out: dict[str, list[dict]] = {}
+    for i in range(0, len(tf_symbols), _KLINE_BATCH):
+        if i > 0:
+            time.sleep(0.5)
+        chunk = tf_symbols[i:i + _KLINE_BATCH]
+        try:
+            resp = _get("klines/batch", {
+                "symbols": ",".join(chunk),
+                "period": period,
+                "count": count,
+                "adjust": adjust,
+            })
+        except TickFlowError as e:
+            logger.warning("tf_batch_klines_history: batch %d skipped (%s)",
+                           i // _KLINE_BATCH, e)
+            continue
+        for tf_sym, kdata in (resp.get("data") or {}).items():
+            bars = _parse_kline_arrays(kdata)
+            if not bars:
+                continue
+            cache_store.upsert_ohlcv(tf_sym, bars, adjust)
+            out[tf_sym] = bars
     return out
 
 
