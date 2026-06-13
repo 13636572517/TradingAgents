@@ -123,6 +123,36 @@ def _normalize(df: pd.DataFrame, col_map: dict) -> list[dict]:
     return result
 
 
+# ── Source: TickFlow (cached, incremental) ────────────────────────────────────
+
+def _fetch_tickflow(ticker: str, start: str, end: str) -> list[dict]:
+    """Pull OHLCV from the persistent TickFlow cache (Phase 1).
+
+    First call for a symbol fetches the full range from TickFlow; every call
+    after that only pulls the (cached_max_date, today] delta, so this is by
+    far the fastest and most reliable source once warmed — preferred over the
+    AkShare/BaoStock/JoinQuant network round-trips below.
+    """
+    from tradingagents.dataflows.tickflow_data import _to_tf_code, _load_ohlcv_cached
+    tf_code = _to_tf_code(ticker)
+    bars = _load_ohlcv_cached(tf_code, start, end, adjust="forward")
+    if not bars:
+        raise ValueError(f"TickFlow: no cached/fetched data for {ticker}")
+    rows = []
+    for b in bars:
+        if b.get("open") is None or b.get("close") is None:
+            continue
+        rows.append({
+            "date": b["date"],
+            "open": round(float(b["open"]), 4),
+            "high": round(float(b["high"]), 4),
+            "low": round(float(b["low"]), 4),
+            "close": round(float(b["close"]), 4),
+            "volume": int(b["volume"]) if b.get("volume") is not None else 0,
+        })
+    return rows
+
+
 # ── Source: AkShare A-share / ETF ─────────────────────────────────────────────
 
 def _fetch_akshare_a(ticker: str, start: str, end: str) -> list[dict]:
@@ -322,6 +352,7 @@ def _fetch_with_fallback(ticker: str, start: str, end: str) -> tuple[list[dict],
 
     if is_a:
         chain = [
+            ("TickFlow",   _fetch_tickflow),
             ("AkShare",    _fetch_akshare_a),
             ("BaoStock",   _fetch_baostock),
             ("JoinQuant",  _fetch_joinquant),
@@ -329,12 +360,14 @@ def _fetch_with_fallback(ticker: str, start: str, end: str) -> tuple[list[dict],
         ]
     elif is_hk:
         chain = [
+            ("TickFlow",   _fetch_tickflow),
             ("Futu",       _fetch_futu),
             ("AkShare-HK", _fetch_akshare_hk),
             ("yfinance",   _fetch_yfinance),
         ]
     else:  # US / other
         chain = [
+            ("TickFlow",   _fetch_tickflow),
             ("Futu",       _fetch_futu),
             ("yfinance",   _fetch_yfinance),
             ("AkShare-US", _fetch_akshare_us),

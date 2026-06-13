@@ -2,9 +2,19 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { api } from "../api/client"
-import type { StockDetail, StockDetailKline } from "../types"
+import { useKLineData } from "../hooks/useKLineData"
+import type { TimeRange } from "../hooks/useKLineData"
+import type { StockDetail } from "../types"
 
 type Tab = "balance" | "income" | "cashflow"
+
+const KLINE_RANGES: { key: TimeRange; label: string }[] = [
+  { key: "1M", label: "30天" },
+  { key: "3M", label: "90天" },
+  { key: "6M", label: "180天" },
+  { key: "1Y", label: "1年" },
+  { key: "2Y", label: "2年" },
+]
 
 function fmtNum(v: unknown, digits = 2, suffix = ""): string {
   if (v === null || v === undefined || v === "") return "—"
@@ -33,7 +43,7 @@ function pctClass(v: number | null | undefined): string {
 
 // Simple SVG sparkline for the K-line preview, with a price scale and a
 // hover crosshair/tooltip showing the exact date + close price.
-function KlineSpark({ bars }: { bars: StockDetailKline[] }) {
+function KlineSpark({ bars }: { bars: { date: string; close: number | null }[] }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
   if (bars.length < 2) return <div className="text-xs text-gray-500">K线数据不足</div>
@@ -119,6 +129,10 @@ export default function StockDetail() {
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>("balance")
   const [analyzing, setAnalyzing] = useState(false)
+  const [klineRange, setKlineRange] = useState<TimeRange>("3M")
+
+  const { data: klineBars, loading: klineLoading, error: klineError } =
+    useKLineData(data?.ticker ?? "", klineRange)
 
   useEffect(() => {
     let cancelled = false
@@ -263,15 +277,39 @@ export default function StockDetail() {
           </div>
         </div>
         <div className="rounded border border-border bg-surface p-3">
-          <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-            近 {data.klines.length} 个交易日走势
-          </h2>
-          <KlineSpark bars={data.klines} />
-          {data.klines.length > 0 && (
-            <div className="flex justify-between text-[10px] text-gray-600 mt-1 font-mono">
-              <span>{data.klines[0].date}</span>
-              <span>{data.klines[data.klines.length - 1].date}</span>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs uppercase tracking-wider text-gray-500">
+              价格走势{klineBars.length > 0 ? `（${klineBars.length} 个交易日）` : ""}
+            </h2>
+            <div className="flex gap-1">
+              {KLINE_RANGES.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setKlineRange(key)}
+                  className={`text-[11px] px-1.5 py-0.5 rounded ${klineRange === key
+                    ? "bg-accent/20 text-accent"
+                    : "text-gray-500 hover:text-gray-300"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+          </div>
+          {klineLoading ? (
+            <div className="text-xs text-gray-500 py-8 text-center">加载中…</div>
+          ) : klineBars.length < 2 ? (
+            <div className="text-xs text-gray-500 py-8 text-center">{klineError ?? "K线数据不足"}</div>
+          ) : (
+            <>
+              <KlineSpark bars={klineBars} />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-1 font-mono">
+                <span>{klineBars[0].date}</span>
+                <span>{klineBars[klineBars.length - 1].date}</span>
+              </div>
+              {klineError && (
+                <p className="text-[10px] text-amber-400/80 mt-1">{klineError}</p>
+              )}
+            </>
           )}
         </div>
       </div>
