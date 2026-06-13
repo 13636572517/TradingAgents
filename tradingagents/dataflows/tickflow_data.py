@@ -805,8 +805,9 @@ def _eps_ttm(records: list[dict]) -> Optional[float]:
 def tf_financials_valuation(tf_symbols: list[str], start_year: int = None) -> dict:
     """Batch financials sufficient to value each stock: latest BPS/ROE + TTM EPS.
 
-    Returns {6-digit code: {bps, roe, eps_ttm, period_end}}. ``tf_symbols`` are
-    TickFlow-format symbols.
+    Returns {6-digit code: {bps, roe, eps_ttm, period_end, net_profit_yoy,
+    debt_ratio, gross_margin, ocf_to_revenue}}. ``tf_symbols`` are TickFlow-format
+    symbols.
 
     Cache strategy: financial reports are immutable, so we only call TickFlow
     for symbols whose latest cached ``metrics`` period is more than 80 days
@@ -873,6 +874,11 @@ def tf_financials_valuation(tf_symbols: list[str], start_year: int = None) -> di
             "roe": latest.get("roe"),
             "eps_ttm": _eps_ttm(records),
             "period_end": latest.get("period_end"),
+            # percent-scale (e.g. 89.76 == 89.76%), straight from TickFlow metrics
+            "net_profit_yoy": latest.get("net_income_yoy"),
+            "debt_ratio": latest.get("debt_to_asset_ratio"),
+            "gross_margin": latest.get("gross_margin"),
+            "ocf_to_revenue": latest.get("operating_cash_to_revenue"),
         }
     return out
 

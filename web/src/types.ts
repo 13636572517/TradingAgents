@@ -201,6 +201,10 @@ export interface ScreeningCandidate {
   roe: number | null
   amount: number | null
   net_inflow: number | null
+  net_profit_yoy: number | null
+  debt_ratio: number | null
+  gross_margin: number | null
+  ocf_to_revenue: number | null
   rank_in_board: number | null
   score: number | null
   reason: string | null

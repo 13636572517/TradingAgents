@@ -131,6 +131,51 @@ const FILTER_RULES: FilterRule[] = [
     description: "净资产收益率不低于8%，确保盈利能力达标，避免低估值但基本面差的“价值陷阱”。",
     test: (c) => c.roe != null && c.roe >= 8,
   },
+  {
+    key: "mktcap_large",
+    label: "市值 ≥ 50亿",
+    description: "总市值不低于50亿元，排除流动性差、波动剧烈的小盘股，降低交易风险。",
+    test: (c) => c.total_mktcap != null && c.total_mktcap >= 5e9,
+  },
+  {
+    key: "board_leader",
+    label: "板块龙头（排名前2）",
+    description: "在所属申万板块的龙头评分中排名前2，代表该股在行业内具有相对优势地位（市值、流动性、ROE、资金流综合评分）。",
+    test: (c) => c.rank_in_board != null && c.rank_in_board <= 2,
+  },
+  {
+    key: "no_chasing_high",
+    label: "当日涨幅 ≤ 5%",
+    description: "当日涨幅不超过5%，避免追高刚大涨的股票，更符合价值投资逢低布局的思路。",
+    test: (c) => c.pct_change != null && c.pct_change <= 5,
+  },
+  {
+    key: "peg_below_1",
+    label: "PEG < 1",
+    description: "市盈率相对净利润增速（PEG = PE / 净利润同比增速%）低于1，意味着估值相对其盈利成长性而言被低估。仅适用于净利润正增长的公司。",
+    test: (c) =>
+      c.pe != null && c.pe > 0 &&
+      c.net_profit_yoy != null && c.net_profit_yoy > 0 &&
+      c.pe / c.net_profit_yoy < 1,
+  },
+  {
+    key: "debt_ratio_low",
+    label: "资产负债率 < 40%",
+    description: "资产负债率低于40%，财务杠杆较低，偿债压力小，抗风险能力较强。",
+    test: (c) => c.debt_ratio != null && c.debt_ratio < 40,
+  },
+  {
+    key: "gross_margin_high",
+    label: "毛利率 ≥ 30%",
+    description: "毛利率不低于30%，反映公司产品或服务具有较强的定价权与护城河。",
+    test: (c) => c.gross_margin != null && c.gross_margin >= 30,
+  },
+  {
+    key: "ocf_positive",
+    label: "经营现金流健康（OCF/营收 > 0）",
+    description: "经营活动现金流占营收比例为正，说明账面利润有真实现金流入支撑，排除“纸面盈利”风险。",
+    test: (c) => c.ocf_to_revenue != null && c.ocf_to_revenue > 0,
+  },
 ]
 
 // ── Multi-Select Dropdown ─────────────────────────────────────────────────────

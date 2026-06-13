@@ -197,6 +197,10 @@ class ScreeningCandidate(Base):
     roe             = Column(Float)
     amount          = Column(Float)     # 成交额 (liquidity)
     net_inflow      = Column(Float)     # 主力净流入
+    net_profit_yoy  = Column(Float)     # 净利润同比增速 (%)
+    debt_ratio      = Column(Float)     # 资产负债率 (%)
+    gross_margin    = Column(Float)     # 毛利率 (%)
+    ocf_to_revenue  = Column(Float)     # 经营现金流/营收 (%)
     rank_in_board   = Column(Integer)   # 1 = top leader
     score           = Column(Float)     # composite leader score (0-100)
     reason          = Column(Text)      # human-readable selection rationale

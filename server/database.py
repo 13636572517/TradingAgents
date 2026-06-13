@@ -48,6 +48,10 @@ def init_db():
     _migrate_add_column("screening_candidates", "code",              "VARCHAR(6)")
     _migrate_add_column("screening_candidates", "price",             "FLOAT")
     _migrate_add_column("screening_candidates", "pct_change",        "FLOAT")
+    _migrate_add_column("screening_candidates", "net_profit_yoy",    "FLOAT")
+    _migrate_add_column("screening_candidates", "debt_ratio",        "FLOAT")
+    _migrate_add_column("screening_candidates", "gross_margin",      "FLOAT")
+    _migrate_add_column("screening_candidates", "ocf_to_revenue",    "FLOAT")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:

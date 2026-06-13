@@ -344,6 +344,10 @@ def _spot_tickflow() -> dict:
             "float_mktcap": (price * fshare) if (price and fshare) else None,
             "turnover": _pct(ext.get("turnover_rate")),
             "roe": _to_float(fm.get("roe")),
+            "net_profit_yoy": _to_float(fm.get("net_profit_yoy")),
+            "debt_ratio": _to_float(fm.get("debt_ratio")),
+            "gross_margin": _to_float(fm.get("gross_margin")),
+            "ocf_to_revenue": _to_float(fm.get("ocf_to_revenue")),
         }
     return out
 
