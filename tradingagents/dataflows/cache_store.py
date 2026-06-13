@@ -119,7 +119,7 @@ def upsert_ohlcv(tf_symbol: str, bars: list[dict], adjust: str = "forward") -> i
 
     Returns count of newly-written rows. Bars are dicts with the keys produced
     by :func:`get_ohlcv_range`. Idempotent — safe to call with overlapping
-    ranges (the dedupe is handled by the composite primary key).
+    ranges and from concurrent tasks (uses INSERT IGNORE to skip duplicate keys).
     """
     if not bars:
         return 0
@@ -130,28 +130,33 @@ def upsert_ohlcv(tf_symbol: str, bars: list[dict], adjust: str = "forward") -> i
         StockOHLCV, _ = _models()
         if StockOHLCV is None:
             return 0
-        # Pull existing dates in one query, write only the gap
-        existing = {
-            d for (d,) in db.query(StockOHLCV.date)
-                            .filter(StockOHLCV.symbol == tf_symbol,
-                                    StockOHLCV.adjust == adjust,
-                                    StockOHLCV.date.in_([b["date"] for b in bars]))
-                            .all()
-        }
-        written = 0
-        for b in bars:
-            if b["date"] in existing:
-                continue
-            db.add(StockOHLCV(
-                symbol=tf_symbol, date=b["date"], adjust=adjust,
-                open=b.get("open"), high=b.get("high"), low=b.get("low"),
-                close=b.get("close"), volume=b.get("volume"),
-                amount=b.get("amount"), prev_close=b.get("prev_close"),
-            ))
-            written += 1
-        if written:
-            db.commit()
-        return written
+        from sqlalchemy import text
+        # Build MySQL INSERT IGNORE statement to skip duplicates on composite PK
+        sql = """
+        INSERT IGNORE INTO stock_ohlcv
+        (symbol, date, adjust, open, high, low, close, volume, amount, prev_close, fetched_at)
+        VALUES (:symbol, :date, :adjust, :open, :high, :low, :close, :volume, :amount, :prev_close, :fetched_at)
+        """
+        params_list = [
+            {
+                "symbol": tf_symbol,
+                "date": b["date"],
+                "adjust": adjust,
+                "open": b.get("open"),
+                "high": b.get("high"),
+                "low": b.get("low"),
+                "close": b.get("close"),
+                "volume": b.get("volume"),
+                "amount": b.get("amount"),
+                "prev_close": b.get("prev_close"),
+                "fetched_at": datetime.utcnow(),
+            }
+            for b in bars
+        ]
+        for params in params_list:
+            db.execute(text(sql), params)
+        db.commit()
+        return len(bars)
     except Exception as e:
         logger.warning("upsert_ohlcv failed for %s: %s", tf_symbol, e)
         db.rollback()
@@ -207,6 +212,7 @@ def upsert_financials(tf_symbol: str, statement: str,
 
     Each record must include a ``period_end`` field; everything else is stored
     as the JSON ``data`` blob. Returns count of newly-written rows.
+    Idempotent — uses INSERT IGNORE to skip duplicate composite-PK rows.
     """
     if not records:
         return 0
@@ -214,30 +220,27 @@ def upsert_financials(tf_symbol: str, statement: str,
     if db is None:
         return 0
     try:
-        _, StockFinancials = _models()
-        if StockFinancials is None:
-            return 0
-        periods = [str(r.get("period_end")) for r in records if r.get("period_end")]
-        existing = {
-            p for (p,) in db.query(StockFinancials.period_end)
-                            .filter(StockFinancials.symbol == tf_symbol,
-                                    StockFinancials.statement == statement,
-                                    StockFinancials.period_end.in_(periods))
-                            .all()
-        }
-        written = 0
+        from sqlalchemy import text
+        import json
+        sql = """
+        INSERT IGNORE INTO stock_financials
+        (symbol, period_end, statement, data, fetched_at)
+        VALUES (:symbol, :period_end, :statement, :data, :fetched_at)
+        """
+        now = datetime.utcnow()
         for r in records:
             pe = r.get("period_end")
-            if not pe or str(pe) in existing:
+            if not pe:
                 continue
-            db.add(StockFinancials(
-                symbol=tf_symbol, period_end=str(pe),
-                statement=statement, data=r,
-            ))
-            written += 1
-        if written:
-            db.commit()
-        return written
+            db.execute(text(sql), {
+                "symbol": tf_symbol,
+                "period_end": str(pe),
+                "statement": statement,
+                "data": json.dumps(r),
+                "fetched_at": now,
+            })
+        db.commit()
+        return len(records)
     except Exception as e:
         logger.warning("upsert_financials failed for %s/%s: %s",
                        tf_symbol, statement, e)
