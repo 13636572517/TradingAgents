@@ -79,6 +79,7 @@ class ScreeningCandidateOut(BaseModel):
     id: str
     run_id: str
     board_name: str
+    board_level: int
     board_pe_pct: Optional[float]
     board_pb_pct: Optional[float]
     board_valuation_method: Optional[str]

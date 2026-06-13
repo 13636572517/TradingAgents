@@ -617,6 +617,20 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             logger.warning("run_screening_task: run %s not found", run_id)
             return
 
+        # Re-read the TickFlow key from DB on every run. The worker only
+        # hydrates keys at startup, so a key saved/changed via the settings
+        # page after the worker booted would otherwise be missed, silently
+        # degrading screening to the AkShare/JoinQuant fallbacks (which don't
+        # carry price/pct_change). Refreshing here keeps screening on TickFlow.
+        try:
+            import os
+            from server.models import AppSettings
+            _s = db.get(AppSettings, 1)
+            if _s and _s.tickflow_api_key:
+                os.environ["TICKFLOW_API_KEY"] = _s.tickflow_api_key
+        except Exception:
+            pass  # non-critical; screening will degrade to akshare/joinquant
+
         def _progress(msg: str):
             """Write progress message to DB so frontend can poll it."""
             run.error = msg
