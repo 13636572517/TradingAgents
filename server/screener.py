@@ -69,7 +69,7 @@ def compute_board_valuations(spot: dict, level: int = 1) -> list[dict]:
     boards = sd.get_industry_boards(level=level)
     results: list[dict] = []
     for b in boards:
-        codes = sd.get_board_constituents(b["name"])
+        codes = sd.get_board_constituents(b["code"])
         if not codes:
             continue
         pes, pbs = [], []
@@ -176,7 +176,7 @@ def annotate_boards(db: Session, run_date: str, board_vals: list[dict],
 
 def score_leaders(board: dict, spot: dict, roe_map: dict, flow_map: dict,
                   params: dict) -> list[dict]:
-    codes = sd.get_board_constituents(board["name"])
+    codes = sd.get_board_constituents(board["code"])
     rows: list[dict] = []
     for code in codes:
         s = spot.get(code)
