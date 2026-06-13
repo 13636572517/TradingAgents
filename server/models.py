@@ -150,6 +150,7 @@ class ScreeningCandidate(Base):
     id              = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     run_id          = Column(String(36), ForeignKey('screening_runs.id', ondelete='CASCADE'), nullable=False, index=True)
     board_name      = Column(String(50), nullable=False)
+    board_level     = Column(Integer, default=1)            # 1=SW1一级, 2=SW2二级
     board_pe_pct    = Column(Float)     # board PE percentile (0-100)
     board_pb_pct    = Column(Float)     # board PB percentile (0-100)
     board_valuation_method = Column(String(20))  # historical|cross_section

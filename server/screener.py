@@ -1,20 +1,15 @@
 """A-share stock-screening engine.
 
 Pipeline:
-  1. Scan all industry boards, aggregate constituent valuations (median PE / PB).
+  1. Scan all industry boards (SW1 一级 + SW2 二级), aggregate constituent valuations.
   2. Persist a daily SectorSnapshot per board (builds a self time-series).
-  3. Compute each board's PE & PB percentile:
-       - historical : percentile within this board's own snapshot history (preferred,
-                       used once we have >= MIN_HISTORY data points)
-       - cross_section : percentile across ALL boards today (bootstrap fallback)
-     A board is "undervalued" when PE percentile < THRESHOLD and PB percentile < THRESHOLD.
-  4. Within each undervalued board, score constituents with a composite leader score:
-       market cap (40%) + liquidity/成交额 (25%) + ROE (20%) + 主力净流入 (15%),
-     each min-max normalised within the board. Drop ST / illiquid names.
-  5. Return top-N leaders per board as candidates.
+  3. Compute each board's PE & PB percentile (historical or cross-section).
+  4. Score ALL constituents with a composite leader score.
+  5. Return top-N leaders per board.
 
-All numeric inputs come from cached AkShare snapshots (see dataflows/sector_data.py),
-so a full run issues only a handful of network calls regardless of universe size.
+Supports two tab views in the frontend:
+  - SW1 (申万一级, ~31 industries)
+  - SW2 (申万二级, ~130 sub-industries)
 """
 from __future__ import annotations
 
@@ -33,21 +28,17 @@ logger = logging.getLogger(__name__)
 # ── Tunable parameters ───────────────────────────────────────────────────────────
 
 DEFAULT_PARAMS = {
-    "valuation_threshold_pct": 30.0,   # PE & PB percentile must be below this
-    "min_history_points": 20,          # min snapshots before using historical percentile
-    "max_undervalued_boards": 8,       # cap on undervalued boards reported
-    "leaders_per_board": 5,            # top-N leaders per board
-    "min_amount_cny": 5e7,             # liquidity floor: 成交额 >= 50M CNY
-    "min_member_count": 5,             # ignore tiny boards
-    # leader score weights (sum need not be 1; normalised internally)
+    "valuation_threshold_pct": 30.0,
+    "min_history_points": 20,
+    "leaders_per_board": 5,
+    "min_amount_cny": 5e7,
+    "min_member_count": 5,
     "w_mktcap": 0.40,
     "w_liquidity": 0.25,
     "w_roe": 0.20,
     "w_inflow": 0.15,
 }
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────────
 
 def _median(values: list[float]) -> Optional[float]:
     vals = [v for v in values if v is not None and v > 0]
@@ -57,7 +48,6 @@ def _median(values: list[float]) -> Optional[float]:
 
 
 def _percentile_rank(value: float, population: list[float]) -> Optional[float]:
-    """Return the percentile (0-100) of `value` within `population` (lower = cheaper)."""
     pop = [p for p in population if p is not None]
     if value is None or not pop:
         return None
@@ -74,13 +64,9 @@ def _minmax(value: Optional[float], lo: float, hi: float) -> float:
 
 # ── Step 1-2: board valuation + snapshot ───────────────────────────────────────────
 
-def compute_board_valuations(spot: dict) -> list[dict]:
-    """For every industry board compute median PE/PB from its constituents.
-
-    Returns list of dicts:
-      {name, code, pe, pb, total_mktcap, pct_change, turnover, member_count}
-    """
-    boards = sd.get_industry_boards()
+def compute_board_valuations(spot: dict, level: int = 1) -> list[dict]:
+    """For every industry board at the given SW level, compute median PE/PB."""
+    boards = sd.get_industry_boards(level=level)
     results: list[dict] = []
     for b in boards:
         codes = sd.get_board_constituents(b["name"])
@@ -99,7 +85,8 @@ def compute_board_valuations(spot: dict) -> list[dict]:
             continue
         results.append({
             "name": b["name"],
-            "code": b["code"],
+            "code": b.get("code", b["name"]),
+            "level": level,
             "pe": pe_med,
             "pb": pb_med,
             "total_mktcap": b.get("total_mktcap"),
@@ -111,7 +98,6 @@ def compute_board_valuations(spot: dict) -> list[dict]:
 
 
 def persist_snapshots(db: Session, run_date: str, board_vals: list[dict]) -> None:
-    """Write one SectorSnapshot per board for run_date (idempotent per date)."""
     existing = {
         s.board_name for s in db.query(SectorSnapshot.board_name)
         .filter(SectorSnapshot.date == run_date).all()
@@ -133,7 +119,7 @@ def persist_snapshots(db: Session, run_date: str, board_vals: list[dict]) -> Non
     db.commit()
 
 
-# ── Step 3: percentiles + undervalued selection ────────────────────────────────────
+# ── Step 3: percentiles + undervalued ──────────────────────────────────────────────
 
 def _board_history(db: Session, board_name: str, field: str, before_date: str) -> list[float]:
     rows = (
@@ -145,19 +131,21 @@ def _board_history(db: Session, board_name: str, field: str, before_date: str) -
     return [getattr(r, field) for r in rows if getattr(r, field) is not None]
 
 
-def select_undervalued_boards(db: Session, run_date: str, board_vals: list[dict],
-                              params: dict) -> list[dict]:
-    """Annotate boards with PE/PB percentiles and return those that pass the threshold."""
+def annotate_boards(db: Session, run_date: str, board_vals: list[dict],
+                    params: dict) -> list[dict]:
+    """Annotate boards with PE/PB percentiles. Returns same list with extra fields."""
     threshold = params["valuation_threshold_pct"]
     min_hist = params["min_history_points"]
 
-    # Cross-sectional populations (today, all boards)
     pe_pop = [b["pe"] for b in board_vals if b.get("pe")]
     pb_pop = [b["pb"] for b in board_vals if b.get("pb")]
 
-    undervalued: list[dict] = []
     for b in board_vals:
         if (b.get("member_count") or 0) < params["min_member_count"]:
+            b["pe_pct"] = None
+            b["pb_pct"] = None
+            b["valuation_method"] = None
+            b["is_undervalued"] = False
             continue
 
         pe_hist = _board_history(db, b["name"], "pe", run_date)
@@ -176,20 +164,18 @@ def select_undervalued_boards(db: Session, run_date: str, board_vals: list[dict]
         b["pe_pct"] = pe_pct
         b["pb_pct"] = pb_pct
         b["valuation_method"] = method
+        b["is_undervalued"] = (
+            pe_pct is not None and pb_pct is not None
+            and pe_pct < threshold and pb_pct < threshold
+        )
 
-        if pe_pct is not None and pb_pct is not None and pe_pct < threshold and pb_pct < threshold:
-            undervalued.append(b)
-
-    # Cheapest first (by combined percentile)
-    undervalued.sort(key=lambda x: (x.get("pe_pct", 100) + x.get("pb_pct", 100)))
-    return undervalued[: params["max_undervalued_boards"]]
+    return board_vals
 
 
-# ── Step 4: leader scoring within a board ───────────────────────────────────────────
+# ── Step 4: leader scoring ─────────────────────────────────────────────────────────
 
 def score_leaders(board: dict, spot: dict, roe_map: dict, flow_map: dict,
                   params: dict) -> list[dict]:
-    """Rank constituents of one board by composite leader score; return top-N."""
     codes = sd.get_board_constituents(board["name"])
     rows: list[dict] = []
     for code in codes:
@@ -214,7 +200,6 @@ def score_leaders(board: dict, spot: dict, roe_map: dict, flow_map: dict,
     if not rows:
         return []
 
-    # Normalisation bounds per factor (within this board)
     def _bounds(key):
         vals = [r[key] for r in rows if r.get(key) is not None]
         return (min(vals), max(vals)) if vals else (0.0, 0.0)
@@ -238,120 +223,92 @@ def score_leaders(board: dict, spot: dict, roe_map: dict, flow_map: dict,
     top = rows[: params["leaders_per_board"]]
     for i, r in enumerate(top, start=1):
         r["rank_in_board"] = i
-        r["reason"] = _build_reason(board, r)
     return top
-
-
-def _fmt_yi(v: Optional[float]) -> str:
-    """Format a CNY amount into 亿 units."""
-    if v is None:
-        return "—"
-    return f"{v / 1e8:.1f}亿"
-
-
-def _build_reason(board: dict, r: dict) -> str:
-    parts = [
-        f"{board['name']}板块估值偏低(PE分位{board.get('pe_pct')}% / PB分位{board.get('pb_pct')}%)",
-        f"市值{_fmt_yi(r.get('total_mktcap'))}",
-    ]
-    if r.get("roe") is not None:
-        parts.append(f"ROE {r['roe']:.1f}%")
-    if r.get("net_inflow") is not None:
-        sign = "净流入" if r["net_inflow"] >= 0 else "净流出"
-        parts.append(f"主力{sign}{_fmt_yi(abs(r['net_inflow']))}")
-    parts.append(f"板块内龙头排名第{r.get('rank_in_board')}")
-    return "，".join(parts) + "。"
 
 
 # ── Orchestration ───────────────────────────────────────────────────────────────────
 
 def run_screening(db: Session, params: Optional[dict] = None,
                   progress: Optional[callable] = None) -> dict:
-    """Execute the full screening pipeline. Returns a dict:
-       {run_date, params, board_valuations, undervalued, candidates, summary}
-    Does NOT persist a ScreeningRun row — callers (router/task) handle persistence.
-
-    Parameters
-    ----------
-    progress : callable[str, None], optional
-        If provided, called with human-readable progress messages that the
-        caller can persist to the ScreeningRun for frontend visibility.
-    """
     def _p(msg: str):
-        if progress:
-            progress(msg)
+        if progress: progress(msg)
         logger.info("[screener] %s", msg)
 
     p = {**DEFAULT_PARAMS, **(params or {})}
     run_date = datetime.now().strftime("%Y-%m-%d")
 
-    _p("Step 1/5 — 获取全市场行情快照…")
+    # Step 1: market snapshot
+    _p("Step 1/4 — 获取全市场行情快照…")
     spot = sd.get_market_spot()
     if not spot:
-        raise RuntimeError(
-            "全市场行情快照获取失败 — TickFlow / AkShare / JoinQuant 均不可用。"
-            "请确认 TickFlow API Key 已配置且可连通。"
-        )
-    _p(f"Step 1/5 — 行情快照获取完成（{len(spot)} 只股票）")
+        raise RuntimeError("全市场行情快照获取失败")
+    _p(f"Step 1/4 — 行情快照获取完成（{len(spot)} 只股票）")
 
-    _p("Step 2/5 — 扫描行业板块估值…")
-    board_vals = compute_board_valuations(spot)
-    _p(f"Step 2/5 — 扫描完成，共 {len(board_vals)} 个板块")
+    # Step 2: scan boards for BOTH levels
+    _p("Step 2/4 — 扫描 SW1 申万一级行业（~31个）…")
+    sw1_boards = compute_board_valuations(spot, level=1)
+    annotate_boards(db, run_date, sw1_boards, p)
+    persist_snapshots(db, run_date, sw1_boards)
+    _p(f"Step 2/4 — SW1 扫描完成，{len(sw1_boards)} 个板块")
 
-    persist_snapshots(db, run_date, board_vals)
+    _p("Step 3/4 — 扫描 SW2 申万二级行业（~130个）…")
+    sw2_boards = compute_board_valuations(spot, level=2)
+    annotate_boards(db, run_date, sw2_boards, p)
+    persist_snapshots(db, run_date, sw2_boards)
+    _p(f"Step 3/4 — SW2 扫描完成，{len(sw2_boards)} 个板块")
 
-    _p("Step 3/5 — 筛选低估板块…")
-    undervalued = select_undervalued_boards(db, run_date, board_vals, p)
-    _p(f"Step 3/5 — 找到 {len(undervalued)} 个低估板块")
-
-    _p("Step 4/5 — 计算各板块龙头评分…")
+    # Step 4: score leaders for ALL boards (both levels)
+    _p("Step 4/4 — 计算各板块龙头评分…")
     roe_map = sd.get_roe_map()
     flow_map = sd.get_moneyflow_map()
 
-    # Score ALL boards — undervalued ones will be highlighted in the UI.
-    # Previously only undervalued boards were scored, hiding candidates from
-    # every other board. Now every board gets leader scoring.
-    candidates: list[dict] = []
-    for board in board_vals:
-        leaders = score_leaders(board, spot, roe_map, flow_map, p)
-        for ld in leaders:
-            candidates.append({
-                "board_name": board["name"],
-                "board_pe_pct": board.get("pe_pct"),
-                "board_pb_pct": board.get("pb_pct"),
-                "board_valuation_method": board.get("valuation_method"),
-                **ld,
-            })
-    _p(f"Step 4/5 — 龙头评分完成，共 {len(candidates)} 只候选股")
+    all_boards_data = []
+    candidates = []
 
-    summary = {
-        "boards_scanned": len(board_vals),
-        "undervalued_count": len(undervalued),
-        "candidate_count": len(candidates),
-        "roe_available": bool(roe_map),
-        "moneyflow_available": bool(flow_map),
-        # ALL boards with percentile info (not just undervalued ones)
-        "all_boards": [
-            {
+    for level, boards in [(1, sw1_boards), (2, sw2_boards)]:
+        for b in boards:
+            leaders = score_leaders(b, spot, roe_map, flow_map, p)
+            for ld in leaders:
+                candidates.append({
+                    "board_name": b["name"],
+                    "board_level": level,
+                    "board_pe_pct": b.get("pe_pct"),
+                    "board_pb_pct": b.get("pb_pct"),
+                    "board_valuation_method": b.get("valuation_method"),
+                    **ld,
+                })
+
+            all_boards_data.append({
                 "name": b["name"],
+                "level": level,
                 "pe": b.get("pe"),
                 "pb": b.get("pb"),
                 "pe_pct": b.get("pe_pct"),
                 "pb_pct": b.get("pb_pct"),
-                "is_undervalued": b in undervalued,
+                "is_undervalued": b.get("is_undervalued", False),
                 "valuation_method": b.get("valuation_method"),
                 "pct_change": b.get("pct_change"),
                 "member_count": b.get("member_count"),
-            }
-            for b in board_vals
-            if b.get("pe") or b.get("pb")  # skip boards with no valuation data
-        ],
+            })
+
+    sw1_undervalued = sum(1 for b in sw1_boards if b.get("is_undervalued"))
+    sw2_undervalued = sum(1 for b in sw2_boards if b.get("is_undervalued"))
+    _p(f"Step 4/4 — 龙头评分完成，共 {len(candidates)} 只候选股")
+
+    summary = {
+        "boards_scanned": len(sw1_boards) + len(sw2_boards),
+        "sw1_count": len(sw1_boards),
+        "sw2_count": len(sw2_boards),
+        "sw1_undervalued": sw1_undervalued,
+        "sw2_undervalued": sw2_undervalued,
+        "candidate_count": len(candidates),
+        "roe_available": bool(roe_map),
+        "moneyflow_available": bool(flow_map),
+        "all_boards": all_boards_data,
     }
     return {
         "run_date": run_date,
         "params": p,
-        "board_valuations": board_vals,
-        "undervalued": undervalued,
         "candidates": candidates,
         "summary": summary,
     }

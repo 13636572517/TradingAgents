@@ -100,77 +100,70 @@ def _first_nonempty(label: str, providers: list[tuple]):
 
 # ── TickFlow board discovery helpers ────────────────────────────────────────────
 
-# TickFlow exposes 申万 (Shenwan) industry classifications as universes under the
-# CN_Equity_SW1_* prefix. Despite the "SW1" (一级) label there are ~335 such pools:
-# each 申万一级 industry is split into many fragment pools that share the same name
-# (e.g. "SW1基础化工" appears 33×). We therefore GROUP fragments by name into ~31
-# real 一级 boards and union their constituents. ``_TF_BOARD_IDS`` caches the
-# name→[universe ids] mapping so constituent lookups know which fragments to merge.
-_SECTOR_UNIVERSE_PREFIX = "CN_Equity_SW1_"
-_TF_BOARD_IDS: dict[str, list[str]] = {}
+# TickFlow exposes 申万 (Shenwan) industry classifications as universes under
+# CN_Equity_SW{level}_* prefixes. Each level has many fragment pools that share
+# the same name (e.g. "SW2基础化工" appears many times). We GROUP fragments by
+# name into real boards and union their constituents.
+_TF_BOARD_IDS: dict[str, list[str]] = {}   # name → [universe ids]
 
 
-def _discover_sector_universes() -> list[dict]:
-    """Discover 申万一级 industry boards from TickFlow, merging same-name fragments.
+def _discover_boards(level: int = 1) -> list[dict]:
+    """Discover 申万 industry boards from TickFlow at the given level (1/2/3).
 
-    Returns list of {name, ids, symbol_count}; also refreshes ``_TF_BOARD_IDS``.
-    ``name`` has the "SW1" tag stripped (universe "SW1家用电器" → board "家用电器").
+    Merges same-name fragment universes. Returns list of {name, ids, symbol_count}.
+    Also refreshes ``_TF_BOARD_IDS`` for constituent lookups.
     """
     from tradingagents.dataflows.tickflow_data import tf_universes
+    prefix = f"CN_Equity_SW{level}_"
+    tag = f"SW{level}"
     groups: dict[str, dict] = {}
     for u in tf_universes():
         uid = u.get("id") or ""
-        if not uid.startswith(_SECTOR_UNIVERSE_PREFIX):
+        if not uid.startswith(prefix):
             continue
         name = (u.get("name") or uid).strip()
-        if name.upper().startswith("SW1"):
-            name = name[3:].strip()
+        if name.upper().startswith(tag):
+            name = name[len(tag):].strip()
         name = name or uid
         g = groups.setdefault(name, {"name": name, "ids": [], "symbol_count": 0})
         g["ids"].append(uid)
         g["symbol_count"] += u.get("symbol_count", 0) or 0
-    _TF_BOARD_IDS.clear()
+    # Merge into global cache (level-specific keys)
     for name, g in groups.items():
-        _TF_BOARD_IDS[name] = g["ids"]
+        _TF_BOARD_IDS[f"{tag}:{name}"] = g["ids"]
     return list(groups.values())
 
 
 # ── Industry boards (TickFlow → AkShare-EM) ────────────────────────────────────
 
-def get_industry_boards(ttl: float = 600) -> list[dict]:
-    """Return list of A-share industry boards.
+def get_industry_boards(level: int = 1, ttl: float = 600) -> list[dict]:
+    """Return list of A-share industry boards at the given Shenwan level (1=一级, 2=二级).
 
     Each dict: {name, code, price, pct_change, total_mktcap, turnover, up, down}
-
-    Provider chain mirrors interface.py routing:
-      tickflow → akshare  (mairui/baostock/joinquant/futu don't support board lists)
     """
-    cached = _cache_get("industry_boards", ttl)
+    cached = _cache_get(f"industry_boards_sw{level}", ttl)
     if cached is not None:
         return cached  # type: ignore
-    boards = _first_nonempty("industry_boards", [
-        ("tickflow", _boards_tickflow),
+    boards = _first_nonempty(f"industry_boards_sw{level}", [
+        ("tickflow", lambda: _boards_tickflow(level)),
         ("akshare_em", _boards_akshare_em),
     ]) or []
     if boards:
-        _cache_set("industry_boards", boards)
+        _cache_set(f"industry_boards_sw{level}", boards)
     return boards
 
 
-def _boards_tickflow() -> list[dict]:
-    """Discover industry boards from TickFlow universes.
-
-    Returns board list with name/code. Price data is enriched from batch quotes.
-    """
-    sectors = _discover_sector_universes()
+def _boards_tickflow(level: int = 1) -> list[dict]:
+    """Discover industry boards from TickFlow universes."""
+    sectors = _discover_boards(level)
     if not sectors:
         return []
-
+    tag = f"SW{level}"
     boards: list[dict] = []
     for s in sectors:
         boards.append({
             "name": s["name"],
-            "code": s["ids"][0] if s.get("ids") else s["name"],
+            "code": f"{tag}:{s['ids'][0]}" if s.get("ids") else s["name"],
             "price": None,
             "pct_change": None,
             "total_mktcap": None,
@@ -231,18 +224,28 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
 def _cons_tickflow(board_name: str) -> list[str]:
     """Get board constituents by unioning every TickFlow fragment universe of a board.
 
-    Uses ``POST /v1/quotes`` with ``universes`` param (via ``tf_universe_symbols``)
-    to fetch all symbols across the board's fragment universes in a **single API
-    call** — replacing the old O(N) per-fragment ``tf_universe_detail`` calls
-    that caused timeouts on boards with many fragments.
+    ``board_name`` may be prefixed with ``SW1:`` or ``SW2:`` to indicate the level.
+    If no prefix, defaults to SW1.
     """
     from tradingagents.dataflows.tickflow_data import tf_universe_symbols
 
-    ids = _TF_BOARD_IDS.get(board_name)
+    level = 1
+    key = board_name
+    if board_name.startswith("SW1:"):
+        level = 1
+        key = board_name[4:]
+    elif board_name.startswith("SW2:"):
+        level = 2
+        key = board_name[4:]
+
+    # Build the lookup key used in _TF_BOARD_IDS
+    lookup_key = f"SW{level}:{key}"
+
+    ids = _TF_BOARD_IDS.get(lookup_key)
     if ids is None:
-        # Mapping not built yet (e.g. boards served from cache) — rebuild it.
-        _discover_sector_universes()
-        ids = _TF_BOARD_IDS.get(board_name, [])
+        # Mapping not built yet — rebuild it.
+        _discover_boards(level)
+        ids = _TF_BOARD_IDS.get(lookup_key, [])
     if not ids:
         return []
 

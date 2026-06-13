@@ -186,6 +186,7 @@ export interface ScreeningCandidate {
   id: string
   run_id: string
   board_name: string
+  board_level: number       // 1 = SW1, 2 = SW2
   board_pe_pct: number | null
   board_pb_pct: number | null
   board_valuation_method: "historical" | "cross_section" | null
@@ -206,6 +207,7 @@ export interface ScreeningCandidate {
 
 export interface BoardValuation {
   name: string
+  level: number           // 1 = SW1 一级, 2 = SW2 二级
   pe: number | null
   pb: number | null
   pe_pct: number | null
@@ -229,7 +231,10 @@ export interface UndervaluedBoard {
 
 export interface ScreeningSummary {
   boards_scanned?: number
-  undervalued_count?: number
+  sw1_count?: number
+  sw2_count?: number
+  sw1_undervalued?: number
+  sw2_undervalued?: number
   candidate_count?: number
   roe_available?: boolean
   moneyflow_available?: boolean

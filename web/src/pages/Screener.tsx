@@ -21,6 +21,101 @@ function fmtPct(v: number | null | undefined): string {
   return `${v.toFixed(0)}%`
 }
 
+// ── Board Card ────────────────────────────────────────────────────────────────
+
+function BoardCard({
+  board, candidates, onAnalyze, analyzingId,
+}: {
+  board: BoardValuation
+  candidates: ScreeningCandidate[]
+  onAnalyze: (c: ScreeningCandidate) => void
+  analyzingId: string | null
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const pctClass = board.is_undervalued
+    ? "border-amber-500/50 bg-amber-950/10 hover:bg-amber-950/20"
+    : "border-border bg-surface hover:bg-white/[0.02]"
+
+  return (
+    <div
+      className={`rounded-lg border overflow-hidden cursor-pointer transition-colors ${pctClass}`}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      {/* Card body */}
+      <div className="px-3 py-2.5">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-medium text-gray-100 text-sm truncate">{board.name}</span>
+          {board.is_undervalued && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 ml-1">
+              低估
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 flex-wrap">
+          <span>PE {fmtNum(board.pe)}</span>
+          <span>PB {fmtNum(board.pb)}</span>
+          {board.pe_pct !== null && board.pb_pct !== null && (
+            <>
+              <span className={board.is_undervalued ? "text-buy" : ""}>
+                PE分位 {fmtPct(board.pe_pct)}
+              </span>
+              <span className={board.is_undervalued ? "text-buy" : ""}>
+                PB分位 {fmtPct(board.pb_pct)}
+              </span>
+            </>
+          )}
+          <span>{board.member_count ?? "—"} 只</span>
+        </div>
+      </div>
+
+      {/* Expanded: candidate list */}
+      {expanded && candidates.length > 0 && (
+        <div className="border-t border-border divide-y divide-border" onClick={(e) => e.stopPropagation()}>
+          {candidates.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 px-3 py-2">
+              <span className="w-5 text-center text-[10px] text-gray-600">#{c.rank_in_board}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-200 text-xs truncate">{c.ticker_name ?? c.ticker}</span>
+                  <span className="text-[10px] text-gray-600">{c.ticker}</span>
+                  {c.score !== null && (
+                    <span className="text-[9px] px-1 py-px rounded bg-accent/10 text-accent shrink-0">
+                      {c.score}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5 flex gap-x-2">
+                  <span>市值 {fmtYi(c.total_mktcap)}</span>
+                  <span>PE {fmtNum(c.pe)}</span>
+                  {c.roe !== null && <span>ROE {fmtNum(c.roe, "%")}</span>}
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onAnalyze(c) }}
+                disabled={analyzingId === c.id}
+                className={`text-[10px] px-2 py-1 rounded-full shrink-0 transition-colors ${
+                  c.analysis_id
+                    ? "border border-accent/40 text-accent"
+                    : "bg-accent/15 border border-accent text-accent"
+                } disabled:opacity-50`}
+              >
+                {analyzingId === c.id ? "提交中" : c.analysis_id ? "查看" : "分析"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {expanded && candidates.length === 0 && (
+        <div className="border-t border-border px-3 py-2 text-[10px] text-gray-600">
+          暂无符合条件的候选股
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function Screener() {
   const navigate = useNavigate()
   const [run, setRun] = useState<ScreeningRun | null>(null)
@@ -29,8 +124,8 @@ export default function Screener() {
   const [autoAnalyze, setAutoAnalyze] = useState(false)
   const [depth, setDepth] = useState(1)
   const [analyzingId, setAnalyzingId] = useState<string | null>(null)
-  const [batchBoard, setBatchBoard] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<"sw1" | "sw2">("sw1")
 
   const loadLatest = useCallback(async () => {
     try {
@@ -45,7 +140,7 @@ export default function Screener() {
 
   useEffect(() => { loadLatest() }, [loadLatest])
 
-  // Poll while a run is in progress
+  // Poll while running
   useEffect(() => {
     if (!run || run.status !== "running") return
     const id = setInterval(async () => {
@@ -83,42 +178,34 @@ export default function Screener() {
     }
   }
 
-  const handleAnalyzeBoard = async (board: string) => {
-    if (!run) return
-    setBatchBoard(board)
-    try {
-      await api.analyzeAllCandidates(run.id, depth, board)
-      await api.getScreeningRun(run.id).then(setRun)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? "批量分析失败")
-    } finally {
-      setBatchBoard(null)
-    }
-  }
-
+  // Data
   const allBoards: BoardValuation[] = run?.summary?.all_boards ?? []
   const candidates = run?.candidates ?? []
 
-  // Sort: undervalued first (by combined percentile), then others by PE percentile
-  const sortedBoards = [...allBoards].sort((a, b) => {
+  // Filter by tab
+  const level = tab === "sw1" ? 1 : 2
+  const filteredBoards = allBoards.filter((b) => b.level === level)
+  const filteredCandidates = candidates.filter((c) => c.board_level === level)
+
+  // Sort: undervalued first, then by PE+PB percentile
+  const sortedBoards = [...filteredBoards].sort((a, b) => {
     if (a.is_undervalued !== b.is_undervalued) return a.is_undervalued ? -1 : 1
     return ((a.pe_pct ?? 100) + (a.pb_pct ?? 100)) - ((b.pe_pct ?? 100) + (b.pb_pct ?? 100))
   })
 
-  const byBoard = sortedBoards.map((b) => ({
-    board: b,
-    items: candidates.filter((c) => c.board_name === b.name)
-      .sort((a, b2) => (a.rank_in_board ?? 99) - (b2.rank_in_board ?? 99)),
-  }))
+  const sw1Count = run?.summary?.sw1_count ?? 0
+  const sw2Count = run?.summary?.sw2_count ?? 0
+  const sw1Uv = run?.summary?.sw1_undervalued ?? 0
+  const sw2Uv = run?.summary?.sw2_undervalued ?? 0
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
+    <div className="max-w-6xl mx-auto px-4 py-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
           <h1 className="text-xl font-semibold text-gray-100">智能选股</h1>
           <p className="text-xs text-gray-500 mt-1">
-            扫描A股行业板块估值分位，筛出被低估板块的龙头股，一键发起深度分析
+            扫描申万行业板块估值分位，筛出被低估板块的龙头股
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -160,25 +247,19 @@ export default function Screener() {
           {/* Run meta */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mb-4">
             <span>日期 {run.run_date}</span>
-            <span>触发 {run.trigger === "scheduled" ? "定时" : "手动"}</span>
             {run.summary?.boards_scanned !== undefined && (
-              <span>扫描 {run.summary.boards_scanned} 个板块</span>
+              <span>共扫描 {run.summary.boards_scanned} 个板块</span>
             )}
-            {run.summary?.undervalued_count !== undefined && (
-              <span className="text-amber-300">低估 {run.summary.undervalued_count} 个</span>
-            )}
-            {run.summary?.all_boards !== undefined && (
-              <span>共 {run.summary.all_boards.length} 个板块</span>
-            )}
+            {sw1Uv > 0 && <span className="text-amber-300">SW1 低估 {sw1Uv}/{sw1Count}</span>}
+            {sw2Uv > 0 && <span className="text-amber-300">SW2 低估 {sw2Uv}/{sw2Count}</span>}
             {run.summary?.candidate_count !== undefined && (
               <span>候选 {run.summary.candidate_count} 只</span>
             )}
-            {run.summary?.roe_available === false && <span className="text-amber-500">ROE数据缺失</span>}
           </div>
 
           {run.status === "running" && (
             <div className="px-3 py-2 rounded bg-accent/10 border border-accent/30 text-accent text-sm mb-4">
-              正在扫描全市场板块与成分股，约需 1-3 分钟，请稍候…
+              {run.error || "正在扫描全市场板块与成分股，约需 1-3 分钟，请稍候…"}
             </div>
           )}
           {run.status === "failed" && (
@@ -187,95 +268,62 @@ export default function Screener() {
             </div>
           )}
 
-          {run.status === "complete" && byBoard.length === 0 && (
-            <p className="text-gray-500 text-sm py-8 text-center">本次未扫描到任何板块数据。</p>
-          )}
-
-          {/* Boards + candidates */}
-          <div className="flex flex-col gap-5">
-            {byBoard.map(({ board, items }) => (
-              <div key={board.name} className={`border rounded-lg overflow-hidden transition-colors ${
-                board.is_undervalued
-                  ? "border-amber-500/40 bg-amber-950/10"
-                  : "border-border bg-surface"
-              }`}>
-                {/* Board header */}
-                <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b ${
-                  board.is_undervalued
-                    ? "border-amber-500/30 bg-amber-900/20"
-                    : "border-border bg-surface/50"
-                }`}>
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium text-gray-100">{board.name}</span>
-                    <span className="text-xs text-gray-400">
-                      PE {fmtNum(board.pe)} · PB {fmtNum(board.pb)}
+          {run.status === "complete" && (
+            <>
+              {/* Tabs */}
+              <div className="flex gap-1 mb-4 border-b border-border">
+                <button
+                  onClick={() => setTab("sw1")}
+                  className={`px-4 py-2 text-sm transition-colors border-b-2 ${
+                    tab === "sw1"
+                      ? "border-accent text-accent font-medium"
+                      : "border-transparent text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  申万一级（{sw1Count} 个行业）
+                  {sw1Uv > 0 && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
+                      {sw1Uv} 低估
                     </span>
-                    {board.pe_pct !== null && board.pb_pct !== null && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                        board.is_undervalued
-                          ? "bg-buy/10 text-buy border-buy/30"
-                          : "bg-gray-500/10 text-gray-400 border-gray-500/30"
-                      }`}>
-                        PE分位 {fmtPct(board.pe_pct)} / PB分位 {fmtPct(board.pb_pct)}
-                      </span>
-                    )}
-                    {board.is_undervalued && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        低估 ✓
-                      </span>
-                    )}
-                    {board.valuation_method === "cross_section" && (
-                      <span className="text-[10px] text-gray-500" title="历史数据不足，使用同日跨板块横截面分位">横截面</span>
-                    )}
-                  </div>
-                  <button onClick={() => handleAnalyzeBoard(board.name)}
-                    disabled={batchBoard === board.name || items.length === 0}
-                    className="text-xs px-3 py-1 rounded-full border border-border text-gray-400 hover:border-accent hover:text-accent transition-colors disabled:opacity-50">
-                    {batchBoard === board.name ? "提交中…" : `一键分析 (${DEPTH_LABEL[depth]})`}
-                  </button>
-                </div>
-
-                {/* Candidates */}
-                <div className="divide-y divide-border">
-                  {items.map((c) => (
-                    <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-accent/5 transition-colors">
-                      <span className="w-6 text-center text-xs text-gray-500">#{c.rank_in_board}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-100 truncate">{c.ticker_name ?? c.ticker}</span>
-                          <span className="text-xs text-gray-500">{c.ticker}</span>
-                          {c.score !== null && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">评分 {c.score}</span>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
-                          <span>市值 {fmtYi(c.total_mktcap)}</span>
-                          <span>PE {fmtNum(c.pe)}</span>
-                          {c.roe !== null && <span>ROE {fmtNum(c.roe, "%")}</span>}
-                          {c.net_inflow !== null && (
-                            <span className={c.net_inflow >= 0 ? "text-buy" : "text-sell"}>
-                              主力{c.net_inflow >= 0 ? "净流入" : "净流出"} {fmtYi(Math.abs(c.net_inflow))}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button onClick={() => handleAnalyze(c)} disabled={analyzingId === c.id}
-                        className={`text-xs px-3 py-1.5 rounded-full transition-colors shrink-0 ${
-                          c.analysis_id
-                            ? "border border-accent/40 text-accent hover:bg-accent/10"
-                            : "bg-accent/15 border border-accent text-accent hover:bg-accent/25"
-                        } disabled:opacity-50`}>
-                        {analyzingId === c.id ? "提交中…" : c.analysis_id ? "查看报告" : "一键分析"}
-                      </button>
-                    </div>
-                  ))}
-                  {items.length === 0 && (
-                    <p className="px-4 py-3 text-xs text-gray-500">该板块暂无符合条件的龙头股。</p>
                   )}
-                </div>
+                </button>
+                <button
+                  onClick={() => setTab("sw2")}
+                  className={`px-4 py-2 text-sm transition-colors border-b-2 ${
+                    tab === "sw2"
+                      ? "border-accent text-accent font-medium"
+                      : "border-transparent text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  申万二级（{sw2Count} 个子行业）
+                  {sw2Uv > 0 && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
+                      {sw2Uv} 低估
+                    </span>
+                  )}
+                </button>
               </div>
-            ))}
-          </div>
+
+              {/* Board cards grid */}
+              {sortedBoards.length === 0 && (
+                <p className="text-gray-500 text-sm py-8 text-center">该分类下暂无板块数据。</p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {sortedBoards.map((board) => (
+                  <BoardCard
+                    key={`${tab}:${board.name}`}
+                    board={board}
+                    candidates={filteredCandidates
+                      .filter((c) => c.board_name === board.name)
+                      .sort((a, b2) => (a.rank_in_board ?? 99) - (b2.rank_in_board ?? 99))
+                    }
+                    onAnalyze={handleAnalyze}
+                    analyzingId={analyzingId}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
