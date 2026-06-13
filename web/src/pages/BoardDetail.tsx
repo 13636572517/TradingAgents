@@ -49,10 +49,18 @@ export default function BoardDetail() {
 
   const sorted = useMemo(() => {
     const arr = showCandidatesOnly ? members.filter((m) => m.is_candidate) : [...members]
+
+    // Precompute a rank for non-candidates by market-cap (descending = bigger first)
+    const ncSorted = members
+      .filter((m) => !m.is_candidate)
+      .sort((a, b) => (b.total_mktcap ?? 0) - (a.total_mktcap ?? 0))
+    const ncRank = new Map<string, number>()
+    ncSorted.forEach((m, i) => ncRank.set(m.code, i + 1))
+
     const getter: Record<SortKey, (m: BoardMember) => number> = {
       rank: (m) => m.is_candidate
         ? (m.rank_in_board ?? 999)
-        : 1000 + (-(m.total_mktcap ?? 0) / 1e8),
+        : 999 + (ncRank.get(m.code) ?? 999),
       mktcap: (m) => m.total_mktcap ?? 0,
       pe: (m) => m.pe ?? Infinity,
       pb: (m) => m.pb ?? Infinity,
