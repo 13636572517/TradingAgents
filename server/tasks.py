@@ -1,7 +1,7 @@
 # server/tasks.py
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from server.celery_app import celery_app
 from server.database import SessionLocal
@@ -772,3 +772,67 @@ def scheduled_daily_screening(self):
         db.close()
 
     run_screening_task.apply(args=[run_id], kwargs={"auto_analyze": True, "auto_analyze_top": 3})
+
+
+@celery_app.task(bind=True, name="server.tasks.nightly_cache_backfill")
+def nightly_cache_backfill(self):
+    """Warm the OHLCV + financials cache for actively-tracked symbols overnight.
+
+    Targets every symbol already in the OHLCV cache plus the latest screening
+    run's candidates, and pulls just the incremental delta (handled by
+    ``_load_ohlcv_cached`` / ``tf_financials_valuation``). This means by the
+    time users open the detail page or the next screener runs in the morning,
+    TickFlow round-trips are already paid for.
+    """
+    from tradingagents.dataflows.tickflow_data import (
+        _to_tf_code, _load_ohlcv_cached, tf_financials_valuation,
+    )
+    from server.models import StockOHLCV, ScreeningCandidate, ScreeningRun
+
+    db = SessionLocal()
+    try:
+        tf_symbols = {s for (s,) in db.query(StockOHLCV.symbol).distinct().all()}
+
+        latest_run = (
+            db.query(ScreeningRun)
+            .filter(ScreeningRun.status == "complete")
+            .order_by(ScreeningRun.created_at.desc())
+            .first()
+        )
+        if latest_run:
+            candidates = (
+                db.query(ScreeningCandidate)
+                .filter(ScreeningCandidate.run_id == latest_run.id)
+                .all()
+            )
+            for c in candidates:
+                try:
+                    tf_symbols.add(_to_tf_code(c.ticker))
+                except Exception:
+                    pass
+    finally:
+        db.close()
+
+    tf_symbols = sorted(tf_symbols)
+    today = datetime.now().strftime("%Y-%m-%d")
+    start = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+
+    ohlcv_ok = ohlcv_fail = 0
+    for sym in tf_symbols:
+        try:
+            _load_ohlcv_cached(sym, start, today, adjust="forward")
+            ohlcv_ok += 1
+        except Exception:
+            ohlcv_fail += 1
+
+    fin_count = 0
+    try:
+        fin_result = tf_financials_valuation(tf_symbols)
+        fin_count = len(fin_result)
+    except Exception:
+        logger.exception("nightly_cache_backfill: financials refresh failed")
+
+    logger.info(
+        "nightly_cache_backfill: %d symbols, ohlcv ok=%d fail=%d, financials updated=%d",
+        len(tf_symbols), ohlcv_ok, ohlcv_fail, fin_count,
+    )

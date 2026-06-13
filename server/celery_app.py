@@ -110,4 +110,10 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.scheduled_daily_screening",
         "schedule": crontab(hour=16, minute=0, day_of_week="1-5"),
     },
+    # Warm the OHLCV/financials cache overnight so tomorrow's screener run and
+    # detail-page views don't pay synchronous TickFlow round-trips.
+    "nightly-cache-backfill": {
+        "task": "server.tasks.nightly_cache_backfill",
+        "schedule": crontab(hour=2, minute=0, day_of_week="1-5"),
+    },
 }

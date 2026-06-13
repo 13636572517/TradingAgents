@@ -22,7 +22,7 @@ import logging
 import os
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Optional
 
 import requests
@@ -161,58 +161,102 @@ def _ts_to_date(ts_ms: int) -> str:
 
 # ── Price / OHLCV ──────────────────────────────────────────────────────────────
 
+def _fetch_klines_raw(tf_code: str, start_date: str, end_date: str,
+                       adjust: str = "forward") -> list[dict]:
+    """Pull raw OHLCV bars from TickFlow for [start_date, end_date]. No cache."""
+    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399999
+    resp = _get("klines", {
+        "symbol": tf_code, "period": "1d",
+        "start_time": start_ts, "end_time": end_ts, "adjust": adjust,
+    })
+    data = resp.get("data", {})
+    if not data or not data.get("timestamp"):
+        return []
+    bars = []
+    for i, ts in enumerate(data["timestamp"]):
+        date_str = _ts_to_date(ts)
+        if date_str < start_date or date_str > end_date:
+            continue
+        bars.append({
+            "date": date_str,
+            "open": data["open"][i] if i < len(data.get("open", [])) else None,
+            "high": data["high"][i] if i < len(data.get("high", [])) else None,
+            "low": data["low"][i] if i < len(data.get("low", [])) else None,
+            "close": data["close"][i] if i < len(data.get("close", [])) else None,
+            "volume": data["volume"][i] if i < len(data.get("volume", [])) else None,
+            "amount": data["amount"][i] if i < len(data.get("amount", [])) else None,
+            "prev_close": data["prev_close"][i] if i < len(data.get("prev_close", [])) else None,
+        })
+    return bars
+
+
+def _load_ohlcv_cached(tf_code: str, start_date: str, end_date: str,
+                        adjust: str = "forward") -> list[dict]:
+    """Return bars for [start_date, end_date], reading from the local cache and
+    only hitting TickFlow for the delta we don't have yet.
+
+    Historical bars never change, so the cache is append-only on date. On the
+    first call for a symbol we fetch the full requested range; subsequent calls
+    fetch only (cached_max_date, today].
+    """
+    from . import cache_store
+
+    cached_max = cache_store.get_max_ohlcv_date(tf_code, adjust)
+    # Decide what to fetch from TickFlow.
+    if cached_max is None:
+        fetch_start, fetch_end = start_date, end_date
+    elif cached_max < end_date:
+        # Step one day forward to avoid re-pulling the boundary bar we already have.
+        nxt = (datetime.strptime(cached_max, "%Y-%m-%d")
+               + timedelta(days=1)).strftime("%Y-%m-%d")
+        fetch_start, fetch_end = max(nxt, start_date), end_date
+    else:
+        fetch_start = fetch_end = None  # fully covered
+
+    if fetch_start and fetch_end and fetch_start <= fetch_end:
+        try:
+            fresh = _fetch_klines_raw(tf_code, fetch_start, fetch_end, adjust)
+            if fresh:
+                cache_store.upsert_ohlcv(tf_code, fresh, adjust)
+        except TickFlowError as e:
+            logger.warning("ohlcv delta fetch failed for %s (%s..%s): %s",
+                           tf_code, fetch_start, fetch_end, e)
+
+    return cache_store.get_ohlcv_range(tf_code, start_date, end_date, adjust)
+
+
 def get_tf_stock_data(
     symbol: Annotated[str, "ticker in Yahoo Finance format, e.g. 600519.SS"],
     start_date: Annotated[str, "Start date yyyy-mm-dd"],
     end_date: Annotated[str, "End date yyyy-mm-dd"],
 ) -> str:
-    """Get A-share daily OHLCV data from TickFlow (前复权, forward-adjusted)."""
+    """Get A-share daily OHLCV data from TickFlow (前复权, forward-adjusted).
+
+    Reads from a persistent local cache first and only fetches the gap from
+    TickFlow — see :func:`_load_ohlcv_cached`.
+    """
     try:
         import pandas as pd
     except ImportError:
         raise TickFlowError("pandas is required for TickFlow data")
 
     tf_code = _to_tf_code(symbol)
-    # Convert dates to millisecond timestamps
-    start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
-    end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399999
+    bars = _load_ohlcv_cached(tf_code, start_date, end_date, adjust="forward")
 
-    resp = _get("klines", {
-        "symbol": tf_code,
-        "period": "1d",
-        "start_time": start_ts,
-        "end_time": end_ts,
-        "adjust": "forward",
-    })
-
-    data = resp.get("data", {})
-    if not data:
+    if not bars:
         return f"No data for {symbol} between {start_date} and {end_date}"
 
-    # TickFlow returns arrays: timestamp, open, high, low, close, volume, amount
-    rows = []
-    for i, ts in enumerate(data.get("timestamp", [])):
-        date_str = _ts_to_date(ts)
-        if date_str < start_date or date_str > end_date:
-            continue
-        rows.append({
-            "Date": date_str,
-            "Open": data["open"][i] if i < len(data.get("open", [])) else None,
-            "High": data["high"][i] if i < len(data.get("high", [])) else None,
-            "Low": data["low"][i] if i < len(data.get("low", [])) else None,
-            "Close": data["close"][i] if i < len(data.get("close", [])) else None,
-            "Volume": data["volume"][i] if i < len(data.get("volume", [])) else None,
-            "Turnover(CNY)": data["amount"][i] if i < len(data.get("amount", [])) else None,
-            "PrevClose": data["prev_close"][i] if i < len(data.get("prev_close", [])) else None,
-        })
-
-    if not rows:
-        return f"No data for {symbol} between {start_date} and {end_date}"
-
+    rows = [{
+        "Date": b["date"],
+        "Open": b.get("open"), "High": b.get("high"), "Low": b.get("low"),
+        "Close": b.get("close"), "Volume": b.get("volume"),
+        "Turnover(CNY)": b.get("amount"), "PrevClose": b.get("prev_close"),
+    } for b in bars]
     df = pd.DataFrame(rows)
     header = (
         f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
-        f"# Source: TickFlow | Currency: CNY | Adjusted: 前复权 (forward)\n"
+        f"# Source: TickFlow (cached) | Currency: CNY | Adjusted: 前复权 (forward)\n"
         f"# Records: {len(df)} | Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     )
     return header + df.to_csv(index=False)
@@ -238,34 +282,17 @@ def get_tf_indicators(
     start_dt = curr_dt - rdelta(years=1)  # need ~1 year for slow indicators
     tf_code = _to_tf_code(symbol)
 
-    start_ts = int(start_dt.timestamp() * 1000)
-    end_ts = int(curr_dt.timestamp() * 1000) + 86399999
-
-    resp = _get("klines", {
-        "symbol": tf_code,
-        "period": "1d",
-        "start_time": start_ts,
-        "end_time": end_ts,
-        "adjust": "forward",
-    })
-
-    data = resp.get("data", {})
-    if not data or not data.get("timestamp"):
-        raise TickFlowError(f"No OHLCV data for {symbol}")
-
-    rows = []
-    for i, ts in enumerate(data["timestamp"]):
-        date_str = _ts_to_date(ts)
-        if date_str > curr_date:
-            continue
-        rows.append({
-            "date": pd.to_datetime(date_str),
-            "open": float(data.get("open", [])[i] or 0),
-            "high": float(data.get("high", [])[i] or 0),
-            "low": float(data.get("low", [])[i] or 0),
-            "close": float(data.get("close", [])[i] or 0),
-            "volume": float(data.get("volume", [])[i] or 0),
-        })
+    bars = _load_ohlcv_cached(tf_code,
+                              start_dt.strftime("%Y-%m-%d"), curr_date,
+                              adjust="forward")
+    rows = [{
+        "date": pd.to_datetime(b["date"]),
+        "open": float(b.get("open") or 0),
+        "high": float(b.get("high") or 0),
+        "low":  float(b.get("low")  or 0),
+        "close": float(b.get("close") or 0),
+        "volume": float(b.get("volume") or 0),
+    } for b in bars]
 
     if not rows:
         raise TickFlowError(f"No OHLCV data for {symbol} up to {curr_date}")
@@ -351,107 +378,121 @@ def get_tf_fundamentals(
     return "\n".join(lines)
 
 
-# ── Balance Sheet ──────────────────────────────────────────────────────────────
+# ── Financial statements (balance / income / cashflow) — cached + incremental ─
+
+_STATEMENT_PATHS = {
+    "balance": "financials/balance-sheet",
+    "income":  "financials/income",
+    "cashflow": "financials/cash-flow",
+    "metrics": "financials/metrics",
+}
+
+
+def _load_statement_cached(tf_code: str, statement: str,
+                            curr_date: Optional[str] = None) -> list[dict]:
+    """Return all known statement records for this symbol, using the cache.
+
+    Fetches from TickFlow only periods after the latest cached one, since a
+    given quarterly report is immutable once filed. ``curr_date`` (optional)
+    caps the upper bound to avoid look-ahead leakage in backtesting.
+    """
+    from . import cache_store
+
+    cached_max = cache_store.get_max_period_end(tf_code, statement)
+    path = _STATEMENT_PATHS.get(statement)
+    if path is None:
+        raise TickFlowError(f"unknown statement type: {statement}")
+
+    # If we have nothing yet, default to a wide window (last ~2 years of reports).
+    fetch_after = cached_max
+    needs_fetch = True
+    if cached_max and curr_date and cached_max >= curr_date:
+        # Nothing newer than curr_date could be reported anyway.
+        needs_fetch = False
+
+    if needs_fetch:
+        params = {"symbols": tf_code}
+        if fetch_after:
+            # ``start_date`` filters to reports filed after this date. We pass
+            # the day AFTER our latest cached period so we don't refetch it.
+            nxt = (datetime.strptime(fetch_after, "%Y-%m-%d")
+                   + timedelta(days=1)).strftime("%Y%m%d")
+            params["start_date"] = nxt
+        else:
+            # Cold cache: pull from ~2 years ago to seed a reasonable history.
+            params["start_date"] = (
+                datetime.now() - timedelta(days=730)
+            ).strftime("%Y%m%d")
+        try:
+            resp = _get(path, params)
+            items = resp.get("data", {}).get(tf_code, []) or []
+            if items:
+                cache_store.upsert_financials(tf_code, statement, items)
+        except TickFlowError as e:
+            logger.warning("financials delta fetch failed for %s/%s: %s",
+                           tf_code, statement, e)
+
+    end_period = curr_date  # may be None
+    return cache_store.get_financials(tf_code, statement, end_period=end_period)
+
+
+def _render_statement(records: list[dict], ticker: str, title: str) -> str:
+    import pandas as pd
+    if not records:
+        raise TickFlowError(f"No {title} data for {ticker}")
+    # Sort newest first to match the prior shape callers expected.
+    records = sorted(records, key=lambda r: r.get("period_end") or "", reverse=True)
+    df = pd.DataFrame(records)
+    header = (
+        f"# {title} for {ticker.upper()}\n"
+        f"# Source: TickFlow (cached) | Records: {len(df)}\n\n"
+    )
+    return header + df.to_csv(index=False)
+
 
 def get_tf_balance_sheet(
     ticker: Annotated[str, "ticker in Yahoo Finance format"],
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    """Get balance sheet (资产负债表) from TickFlow."""
+    """Get balance sheet (资产负债表) — cached, incremental fetch."""
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: F401
     except ImportError:
         raise TickFlowError("pandas is required")
-
     tf_code = _to_tf_code(ticker)
-    params = {"symbols": tf_code}
-    if curr_date:
-        # Query up to the given date
-        params["end_date"] = curr_date
-        params["latest"] = "true"
-    else:
-        params["latest"] = "true"
+    records = _load_statement_cached(tf_code, "balance", curr_date)
+    return _render_statement(records, ticker, "Balance Sheet (资产负债表)")
 
-    resp = _get("financials/balance-sheet", params)
-    items = resp.get("data", {}).get(tf_code, [])
-    if not items:
-        raise TickFlowError(f"No balance sheet data for {ticker}")
-
-    df = pd.DataFrame(items)
-    header = (
-        f"# Balance Sheet (资产负债表) for {ticker.upper()}\n"
-        f"# Source: TickFlow | Records: {len(df)}\n\n"
-    )
-    return header + df.to_csv(index=False)
-
-
-# ── Income Statement ───────────────────────────────────────────────────────────
 
 def get_tf_income_statement(
     ticker: Annotated[str, "ticker in Yahoo Finance format"],
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    """Get income statement (利润表) from TickFlow."""
+    """Get income statement (利润表) — cached, incremental fetch."""
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: F401
     except ImportError:
         raise TickFlowError("pandas is required")
-
     tf_code = _to_tf_code(ticker)
-    params = {"symbols": tf_code}
-    if curr_date:
-        params["end_date"] = curr_date
-        params["latest"] = "true"
-    else:
-        params["latest"] = "true"
+    records = _load_statement_cached(tf_code, "income", curr_date)
+    return _render_statement(records, ticker, "Income Statement (利润表)")
 
-    resp = _get("financials/income", params)
-    items = resp.get("data", {}).get(tf_code, [])
-    if not items:
-        raise TickFlowError(f"No income statement data for {ticker}")
-
-    df = pd.DataFrame(items)
-    header = (
-        f"# Income Statement (利润表) for {ticker.upper()}\n"
-        f"# Source: TickFlow | Records: {len(df)}\n\n"
-    )
-    return header + df.to_csv(index=False)
-
-
-# ── Cash Flow Statement ────────────────────────────────────────────────────────
 
 def get_tf_cashflow(
     ticker: Annotated[str, "ticker in Yahoo Finance format"],
     freq: str = "quarterly",
     curr_date: str = None,
 ) -> str:
-    """Get cash flow statement (现金流量表) from TickFlow."""
+    """Get cash flow statement (现金流量表) — cached, incremental fetch."""
     try:
-        import pandas as pd
+        import pandas as pd  # noqa: F401
     except ImportError:
         raise TickFlowError("pandas is required")
-
     tf_code = _to_tf_code(ticker)
-    params = {"symbols": tf_code}
-    if curr_date:
-        params["end_date"] = curr_date
-        params["latest"] = "true"
-    else:
-        params["latest"] = "true"
-
-    resp = _get("financials/cash-flow", params)
-    items = resp.get("data", {}).get(tf_code, [])
-    if not items:
-        raise TickFlowError(f"No cash flow data for {ticker}")
-
-    df = pd.DataFrame(items)
-    header = (
-        f"# Cash Flow Statement (现金流量表) for {ticker.upper()}\n"
-        f"# Source: TickFlow | Records: {len(df)}\n\n"
-    )
-    return header + df.to_csv(index=False)
+    records = _load_statement_cached(tf_code, "cashflow", curr_date)
+    return _render_statement(records, ticker, "Cash Flow Statement (现金流量表)")
 
 
 # ── Stock detail aggregator (single-call payload for the detail page) ─────────
@@ -518,7 +559,7 @@ def get_tf_stock_detail(ticker: str, kline_days: int = 90,
 
     # 2) Financial metrics history (recent N quarters)
     try:
-        start = (datetime.now() - __import__("datetime").timedelta(
+        start = (datetime.now() - timedelta(
             days=int(history_quarters * 95))).strftime("%Y%m%d")
         resp = _get("financials/metrics", {"symbols": tf_code, "start_date": start})
         recs = (resp.get("data") or {}).get(tf_code, []) or []
@@ -533,7 +574,7 @@ def get_tf_stock_detail(ticker: str, kline_days: int = 90,
                         ("income",   "financials/income"),
                         ("cashflow", "financials/cash-flow")):
         try:
-            start = (datetime.now() - __import__("datetime").timedelta(
+            start = (datetime.now() - timedelta(
                 days=int(history_quarters * 95))).strftime("%Y%m%d")
             resp = _get(path, {"symbols": tf_code, "start_date": start})
             recs = (resp.get("data") or {}).get(tf_code, []) or []
@@ -546,7 +587,7 @@ def get_tf_stock_detail(ticker: str, kline_days: int = 90,
     # 6) Recent K-lines
     try:
         end_dt = datetime.now()
-        start_dt = end_dt - __import__("datetime").timedelta(days=int(kline_days * 1.6))
+        start_dt = end_dt - timedelta(days=int(kline_days * 1.6))
         resp = _get("klines", {
             "symbol": tf_code, "period": "1d",
             "start_time": int(start_dt.timestamp() * 1000),
@@ -711,35 +752,74 @@ def tf_financials_valuation(tf_symbols: list[str], start_year: int = None) -> di
     """Batch financials sufficient to value each stock: latest BPS/ROE + TTM EPS.
 
     Returns {6-digit code: {bps, roe, eps_ttm, period_end}}. ``tf_symbols`` are
-    TickFlow-format symbols. Fetches the last ~5 reporting periods (via
-    ``start_date``) so a true rolling EPS can be computed — see :func:`_eps_ttm`.
-    Tolerant of partial batch failure.
+    TickFlow-format symbols.
+
+    Cache strategy: financial reports are immutable, so we only call TickFlow
+    for symbols whose latest cached ``metrics`` period is more than 80 days
+    old (≈ one reporting interval). For symbols already up-to-date, we read
+    the cached records straight from DB. On a hot cache this drops the typical
+    screener run from ~56 batches to a handful, since most reports haven't
+    changed since yesterday.
     """
+    from . import cache_store
+
+    if not tf_symbols:
+        return {}
     if start_year is None:
         start_year = datetime.now().year - 1
-    start_date = f"{start_year}0101"
-    out: dict[str, dict] = {}
-    for i in range(0, len(tf_symbols), _FIN_BATCH):
-        chunk = tf_symbols[i:i + _FIN_BATCH]
+    start_date_default = f"{start_year}0101"
+
+    # 1. Find which symbols need a fresh pull.
+    max_by_sym = cache_store.get_max_period_end_batch(tf_symbols, "metrics")
+    today = datetime.now().date()
+    stale_threshold_days = 80  # roughly one fiscal quarter
+    to_refresh: list[str] = []
+    for s in tf_symbols:
+        last = max_by_sym.get(s)
+        if not last:
+            to_refresh.append(s)
+            continue
+        try:
+            last_dt = datetime.strptime(last, "%Y-%m-%d").date()
+        except ValueError:
+            to_refresh.append(s)
+            continue
+        if (today - last_dt).days > stale_threshold_days:
+            to_refresh.append(s)
+
+    logger.info("tf_financials_valuation: %d symbols, %d need refresh (%.0f%% cache hit)",
+                len(tf_symbols), len(to_refresh),
+                100 * (1 - len(to_refresh) / max(len(tf_symbols), 1)))
+
+    # 2. Fetch and persist only the stale symbols.
+    for i in range(0, len(to_refresh), _FIN_BATCH):
+        chunk = to_refresh[i:i + _FIN_BATCH]
         try:
             resp = _get("financials/metrics",
-                        {"symbols": ",".join(chunk), "start_date": start_date})
+                        {"symbols": ",".join(chunk), "start_date": start_date_default})
         except TickFlowError as e:
             logger.warning("tf_financials_valuation: batch %d skipped (%s)",
                            i // _FIN_BATCH, e)
             continue
         for sym, records in (resp.get("data") or {}).items():
-            if not records:
-                continue
-            recs = sorted(records, key=lambda r: r.get("period_end") or "")
-            latest = recs[-1]
-            six = sym.split(".")[0].zfill(6)
-            out[six] = {
-                "bps": latest.get("bps"),
-                "roe": latest.get("roe"),
-                "eps_ttm": _eps_ttm(records),
-                "period_end": latest.get("period_end"),
-            }
+            if records:
+                cache_store.upsert_financials(sym, "metrics", records)
+
+    # 3. Read everything from cache and build the {six: {…}} map.
+    cached = cache_store.get_financials_batch(tf_symbols, "metrics")
+    out: dict[str, dict] = {}
+    for sym, records in cached.items():
+        if not records:
+            continue
+        recs = sorted(records, key=lambda r: r.get("period_end") or "")
+        latest = recs[-1]
+        six = sym.split(".")[0].zfill(6)
+        out[six] = {
+            "bps": latest.get("bps"),
+            "roe": latest.get("roe"),
+            "eps_ttm": _eps_ttm(records),
+            "period_end": latest.get("period_end"),
+        }
     return out
 
 

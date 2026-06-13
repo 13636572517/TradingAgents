@@ -21,33 +21,28 @@ Ticker format: results expose Yahoo-Finance style tickers
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Simple thread-safe TTL cache ────────────────────────────────────────────────
-
-_CACHE: dict[str, tuple[float, object]] = {}
-_CACHE_LOCK = threading.Lock()
-
+# ── Cross-process TTL cache (Redis when available, in-memory fallback) ─────────
+#
+# Whole-market snapshots and per-board member lists are expensive to compute
+# (full TickFlow universe + financials + instruments fan-out). The screener
+# runs inside the Celery worker, the detail page reads from the API server —
+# two processes that would otherwise each maintain a cold in-memory cache and
+# re-download the same data. Backing the cache with Redis means both processes
+# share the same hot snapshot for the configured TTL.
 
 def _cache_get(key: str, ttl: float):
-    with _CACHE_LOCK:
-        item = _CACHE.get(key)
-        if item is None:
-            return None
-        ts, value = item
-        if time.time() - ts > ttl:
-            return None
-        return value
+    from .cache_store import shared_get_json
+    return shared_get_json(f"sector_data:{key}", ttl)
 
 
-def _cache_set(key: str, value: object):
-    with _CACHE_LOCK:
-        _CACHE[key] = (time.time(), value)
+def _cache_set(key: str, value: object, ttl_seconds: int = 600):
+    from .cache_store import shared_set_json
+    shared_set_json(f"sector_data:{key}", value, ttl_seconds=ttl_seconds)
 
 
 # ── Ticker helpers ──────────────────────────────────────────────────────────────
@@ -152,7 +147,7 @@ def get_industry_boards(level: int = 1, ttl: float = 600) -> list[dict]:
         ("akshare_em", _boards_akshare_em),
     ]) or []
     if boards:
-        _cache_set(f"industry_boards_sw{level}", boards)
+        _cache_set(f"industry_boards_sw{level}", boards, int(ttl))
     return boards
 
 
@@ -213,7 +208,7 @@ def get_board_constituents(board_name: str, ttl: float = 3600) -> list[str]:
         ("akshare_em", lambda: _cons_akshare_em(board_name)),
     ]) or []
     if codes:
-        _cache_set(key, codes)
+        _cache_set(key, codes, int(ttl))
     return codes
 
 
@@ -289,7 +284,7 @@ def get_market_spot(ttl: float = 600):
         ("joinquant", _spot_jq),
     ]) or {}
     if spot:
-        _cache_set("market_spot", spot)
+        _cache_set("market_spot", spot, int(ttl))
     return spot
 
 
@@ -435,7 +430,7 @@ def get_board_members_snapshot(board_name: str, level: int = 1,
             "roe": _to_float(fm.get("roe")),
         })
     members.sort(key=lambda m: -(m.get("total_mktcap") or 0))
-    _cache_set(cache_key, members)
+    _cache_set(cache_key, members, int(ttl))
     return members
 
 
@@ -533,7 +528,7 @@ def get_roe_map(ttl: float = 86400) -> dict[str, float]:
     roe_map = {c: v["roe"] for c, v in spot.items()
                if isinstance(v, dict) and v.get("roe") is not None}
     if roe_map:
-        _cache_set("roe_map", roe_map)
+        _cache_set("roe_map", roe_map, int(ttl))
         return roe_map
 
     try:
@@ -569,7 +564,7 @@ def get_roe_map(ttl: float = 86400) -> dict[str, float]:
         if roe_map:
             break
 
-    _cache_set("roe_map", roe_map)
+    _cache_set("roe_map", roe_map, int(ttl))
     return roe_map
 
 
@@ -620,7 +615,7 @@ def get_moneyflow_map(ttl: float = 600) -> dict[str, float]:
         if code and flow is not None:
             flow_map[code] = flow
 
-    _cache_set("moneyflow_map", flow_map)
+    _cache_set("moneyflow_map", flow_map, int(ttl))
     return flow_map
 
 
