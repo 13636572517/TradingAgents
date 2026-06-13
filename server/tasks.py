@@ -678,14 +678,21 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
                     "pct_change": b.get("pct_change"),
                     "member_count": b.get("member_count"),
                 }
-                for b in result["undervalued"]
+                for b in result["summary"].get("all_boards", [])
+                if b.get("is_undervalued")
             ],
         }
+        # Backfill the legacy summary counter (used by progress msg + frontend
+        # badge); c8ea451 stopped emitting it as a single top-level key.
+        run.summary["undervalued_count"] = sum(
+            1 for b in result["summary"].get("all_boards", [])
+            if b.get("is_undervalued")
+        )
         run.completed_at = datetime.utcnow()
         run.error = None  # Clear progress messages on success
         db.commit()
 
-        _progress(f"筛选完成！{len(result['summary'].get('undervalued_count', 0))} 个低估板块，{len(candidates)} 只候选股")
+        _progress(f"筛选完成！{run.summary['undervalued_count']} 个低估板块，{len(candidates)} 只候选股")
 
         # Optionally auto-analyze the top-N candidates by score
         if auto_analyze and candidates_sorted:
