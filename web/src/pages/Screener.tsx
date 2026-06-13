@@ -1,8 +1,10 @@
 // web/src/pages/Screener.tsx
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { api } from "../api/client"
-import type { ScreeningRun, BoardValuation } from "../types"
+import type { ScreeningRun, BoardValuation, ScreeningCandidate } from "../types"
+
+// ── Formatters ─────────────────────────────────────────────────────────────────
 
 function fmtNum(v: number | null | undefined, suffix = ""): string {
   if (v === null || v === undefined) return "—"
@@ -14,7 +16,22 @@ function fmtPct(v: number | null | undefined): string {
   return `${v.toFixed(0)}%`
 }
 
-// ── Board Card ────────────────────────────────────────────────────────────────
+function fmtYi(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—"
+  return `${(v / 1e8).toFixed(1)}亿`
+}
+
+function fmtNum2(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—"
+  return v.toFixed(2)
+}
+
+function pctClass(v: number | null | undefined): string {
+  if (v === null || v === undefined || v === 0) return "text-gray-400"
+  return v > 0 ? "text-red-400" : "text-green-400"
+}
+
+// ─ Board Card ────────────────────────────────────────────────────────────────
 
 function BoardCard({
   board, candidateCount, onOpen,
@@ -69,6 +86,82 @@ function BoardCard({
   )
 }
 
+// ── Multi-Select Dropdown ─────────────────────────────────────────────────────
+
+function MultiSelect({
+  options, selected, onChange, placeholder = "全部",
+}: {
+  options: string[]
+  selected: Set<string>
+  onChange: (s: Set<string>) => void
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+
+  const toggle = (opt: string) => {
+    const next = new Set(selected)
+    if (next.has(opt)) next.delete(opt)
+    else next.add(opt)
+    onChange(next)
+  }
+
+  const selectAll = () => {
+    if (selected.size === options.length) onChange(new Set())
+    else onChange(new Set(options))
+  }
+
+  const display = selected.size === 0
+    ? placeholder
+    : selected.size === options.length
+    ? "全部"
+    : `${selected.size} 项`
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded border transition-colors ${
+          selected.size > 0
+            ? "border-accent/40 bg-accent/10 text-accent"
+            : "border-border bg-surface text-gray-400 hover:border-gray-500"
+        }`}
+      >
+        <span>{display}</span>
+        <span className="text-[8px]">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 w-56 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface shadow-xl z-50 p-2"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button
+            onClick={selectAll}
+            className="w-full text-left text-xs px-2 py-1 rounded hover:bg-accent/10 text-gray-300"
+          >
+            {selected.size === options.length ? " 全部" : "☐ 全部"}
+          </button>
+          <div className="my-1 border-t border-border" />
+          {options.map((opt) => (
+            <label
+              key={opt}
+              className="flex items-center gap-2 text-xs px-2 py-1 rounded hover:bg-accent/10 cursor-pointer text-gray-300"
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(opt)}
+                onChange={() => toggle(opt)}
+                className="accent-accent"
+              />
+              <span className="truncate">{opt}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Screener() {
@@ -79,7 +172,10 @@ export default function Screener() {
   const [autoAnalyze, setAutoAnalyze] = useState(false)
   const [depth, setDepth] = useState(1)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<"sw1" | "sw2">("sw1")
+  const [tab, setTab] = useState<"sw1" | "sw2" | "candidates">("sw1")
+
+  // Multi-select filter for candidates tab
+  const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set())
 
   const loadLatest = useCallback(async () => {
     try {
@@ -106,6 +202,13 @@ export default function Screener() {
     return () => clearInterval(id)
   }, [run])
 
+  // Reset sector filter when tab switches to candidates
+  useEffect(() => {
+    if (tab === "candidates") {
+      setSelectedSectors(new Set())
+    }
+  }, [tab])
+
   const handleRun = async () => {
     setStarting(true)
     setError(null)
@@ -121,7 +224,7 @@ export default function Screener() {
 
   // Data
   const allBoards: BoardValuation[] = run?.summary?.all_boards ?? []
-  const candidates = run?.candidates ?? []
+  const candidates: ScreeningCandidate[] = run?.candidates ?? []
 
   // Filter by tab
   const level = tab === "sw1" ? 1 : 2
@@ -133,6 +236,22 @@ export default function Screener() {
     if (a.is_undervalued !== b.is_undervalued) return a.is_undervalued ? -1 : 1
     return ((a.pe_pct ?? 100) + (a.pb_pct ?? 100)) - ((b.pe_pct ?? 100) + (b.pb_pct ?? 100))
   })
+
+  // SW2 sector options for multi-select
+  const sw2Sectors = useMemo(
+    () => Array.from(new Set(candidates.filter((c) => c.board_level === 2).map((c) => c.board_name))),
+    [candidates],
+  )
+
+  // Filtered candidates for the big table
+  const tableCandidates = useMemo(() => {
+    let list = [...candidates]
+    if (selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length) {
+      list = list.filter((c) => selectedSectors.has(c.board_name))
+    }
+    list.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    return list
+  }, [candidates, selectedSectors, sw2Sectors.length])
 
   const sw1Count = run?.summary?.sw1_count ?? 0
   const sw2Count = run?.summary?.sw2_count ?? 0
@@ -243,24 +362,132 @@ export default function Screener() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setTab("candidates")}
+                  className={`px-4 py-2 text-sm transition-colors border-b-2 ${
+                    tab === "candidates"
+                      ? "border-accent text-accent font-medium"
+                      : "border-transparent text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  候选股汇总（{candidates.length} 只）
+                </button>
               </div>
 
-              {/* Board cards grid */}
-              {sortedBoards.length === 0 && (
-                <p className="text-gray-500 text-sm py-8 text-center">该分类下暂无板块数据。</p>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {sortedBoards.map((board) => (
-                  <BoardCard
-                    key={`${tab}:${board.name}`}
-                    board={board}
-                    candidateCount={filteredCandidates.filter((c) => c.board_name === board.name).length}
-                    onOpen={() => run && navigate(
-                      `/screener/runs/${run.id}/boards/${board.level}/${encodeURIComponent(board.name)}`
+              {/* ── Tab: candidates big table ──────────────────────────────── */}
+              {tab === "candidates" && (
+                <>
+                  {/* Sector multi-select filter */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-500">板块筛选：</span>
+                    <MultiSelect
+                      options={sw2Sectors}
+                      selected={selectedSectors}
+                      onChange={setSelectedSectors}
+                      placeholder={`全部 ${sw2Sectors.length} 个二级行业`}
+                    />
+                    {selectedSectors.size > 0 && selectedSectors.size < sw2Sectors.length && (
+                      <span className="text-xs text-amber-400">
+                        已选 {selectedSectors.size} 个板块，共 {tableCandidates.length} 只候选股
+                      </span>
                     )}
-                  />
-                ))}
-              </div>
+                  </div>
+
+                  {/* Big table */}
+                  <div className="overflow-x-auto rounded border border-border bg-surface">
+                    <table className="w-full text-xs">
+                      <thead className="bg-surface-2 text-gray-400">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">排名</th>
+                          <th className="px-2 py-2 text-left font-medium">代码 / 名称</th>
+                          <th className="px-2 py-2 text-left font-medium">所属板块</th>
+                          <th className="px-2 py-2 text-right font-medium">评分</th>
+                          <th className="px-2 py-2 text-right font-medium">现价</th>
+                          <th className="px-2 py-2 text-right font-medium">涨跌</th>
+                          <th className="px-2 py-2 text-right font-medium">市值</th>
+                          <th className="px-2 py-2 text-right font-medium">PE</th>
+                          <th className="px-2 py-2 text-right font-medium">PB</th>
+                          <th className="px-2 py-2 text-right font-medium">ROE</th>
+                          <th className="px-2 py-2 text-center font-medium">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {tableCandidates.map((c) => (
+                          <tr key={`${c.board_name}-${c.ticker}`} className="hover:bg-white/[0.02]">
+                            <td className="px-2 py-2 text-gray-500">
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-[9px] px-1 rounded bg-accent/20 text-accent">候选</span>
+                                {c.rank_in_board && <span>#{c.rank_in_board}</span>}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className="flex flex-col">
+                                <span className="font-mono text-gray-400">{c.code || c.ticker}</span>
+                                <span className="text-gray-200 truncate max-w-[140px]">{c.ticker_name || "—"}</span>
+                              </div>
+                            </td>
+                            <td className="px-2 py-2 text-gray-400">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-gray-300">
+                                {c.board_name}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-right font-mono text-accent">
+                              {c.score != null ? c.score.toFixed(1) : "—"}
+                            </td>
+                            <td className="px-2 py-2 text-right text-gray-200">{fmtNum2(c.price)}</td>
+                            <td className={`px-2 py-2 text-right ${pctClass(c.pct_change)}`}>
+                              {c.pct_change != null
+                                ? `${c.pct_change > 0 ? "+" : ""}${c.pct_change.toFixed(2)}%`
+                                : "—"}
+                            </td>
+                            <td className="px-2 py-2 text-right text-gray-300">{fmtYi(c.total_mktcap)}</td>
+                            <td className="px-2 py-2 text-right text-gray-300">{fmtNum2(c.pe)}</td>
+                            <td className="px-2 py-2 text-right text-gray-300">{fmtNum2(c.pb)}</td>
+                            <td className="px-2 py-2 text-right text-gray-300">
+                              {c.roe != null ? `${c.roe.toFixed(1)}%` : "—"}
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <button
+                                onClick={() => {
+                                  if (c.analysis_id) navigate(`/report/${c.analysis_id}`)
+                                  else navigate(`/screener/runs/${run.id}/boards/${c.board_level}/${encodeURIComponent(c.board_name)}`)
+                                }}
+                                className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30"
+                              >
+                                {c.analysis_id ? "查看" : "分析"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {tableCandidates.length === 0 && (
+                    <p className="text-center py-12 text-sm text-gray-500">暂无候选股。</p>
+                  )}
+                </>
+              )}
+
+              {/* ── Tab: board cards (SW1 / SW2) ──────────────────────────── */}
+              {tab !== "candidates" && (
+                <>
+                  {sortedBoards.length === 0 && (
+                    <p className="text-gray-500 text-sm py-8 text-center">该分类下暂无板块数据。</p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {sortedBoards.map((board) => (
+                      <BoardCard
+                        key={`${tab}:${board.name}`}
+                        board={board}
+                        candidateCount={filteredCandidates.filter((c) => c.board_name === board.name).length}
+                        onOpen={() => run && navigate(
+                          `/screener/runs/${run.id}/boards/${board.level}/${encodeURIComponent(board.name)}`
+                        )}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </>

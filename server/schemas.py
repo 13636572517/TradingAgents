@@ -82,8 +82,11 @@ class ScreeningCandidateOut(BaseModel):
     board_pe_pct: Optional[float]
     board_pb_pct: Optional[float]
     board_valuation_method: Optional[str]
+    code: Optional[str]
     ticker: str
     ticker_name: Optional[str]
+    price: Optional[float]
+    pct_change: Optional[float]
     total_mktcap: Optional[float]
     pe: Optional[float]
     pb: Optional[float]

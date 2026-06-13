@@ -127,6 +127,38 @@ class SectorSnapshot(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
 
 
+class StockOHLCV(Base):
+    """Daily OHLCV cache. Historical bars are immutable, so we upsert by
+    (symbol, date, adjust) and incrementally fetch only (max_cached_date, today]
+    instead of refetching whole histories on every analysis."""
+    __tablename__ = "stock_ohlcv"
+
+    symbol   = Column(String(20), primary_key=True)   # TickFlow format, e.g. 600519.SH
+    date     = Column(String(10), primary_key=True)   # YYYY-MM-DD
+    adjust   = Column(String(10), primary_key=True, default="forward")  # forward / none
+    open     = Column(Float)
+    high     = Column(Float)
+    low      = Column(Float)
+    close    = Column(Float)
+    volume   = Column(Float)
+    amount   = Column(Float)
+    prev_close = Column(Float)
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StockFinancials(Base):
+    """Quarterly financial statement cache. A given (symbol, period_end,
+    statement) is reported once and never restated, so we only fetch periods
+    after the latest cached one and append."""
+    __tablename__ = "stock_financials"
+
+    symbol     = Column(String(20), primary_key=True)   # TickFlow format
+    period_end = Column(String(10), primary_key=True)   # YYYY-MM-DD fiscal quarter end
+    statement  = Column(String(20), primary_key=True)   # balance | income | cashflow | metrics
+    data       = Column(JSON)                           # full record from TickFlow as-is
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ScreeningRun(Base):
     """One execution of the stock-screening pipeline."""
     __tablename__ = "screening_runs"
@@ -154,8 +186,11 @@ class ScreeningCandidate(Base):
     board_pe_pct    = Column(Float)     # board PE percentile (0-100)
     board_pb_pct    = Column(Float)     # board PB percentile (0-100)
     board_valuation_method = Column(String(20))  # historical|cross_section
+    code            = Column(String(6))            # 6-digit A-share code
     ticker          = Column(String(20), nullable=False)   # YF format e.g. 600519.SS
     ticker_name     = Column(String(100))
+    price           = Column(Float)     # 现价
+    pct_change      = Column(Float)     # 涨跌幅 %
     total_mktcap    = Column(Float)
     pe              = Column(Float)
     pb              = Column(Float)

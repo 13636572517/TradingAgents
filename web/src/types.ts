@@ -190,8 +190,11 @@ export interface ScreeningCandidate {
   board_pe_pct: number | null
   board_pb_pct: number | null
   board_valuation_method: "historical" | "cross_section" | null
-  ticker: string
+  code: string | null       // 6-digit A-share code
+  ticker: string            // YF format e.g. 600519.SS
   ticker_name: string | null
+  price: number | null
+  pct_change: number | null
   total_mktcap: number | null
   pe: number | null
   pb: number | null

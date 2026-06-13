@@ -45,6 +45,9 @@ def init_db():
     _migrate_add_column("analysis_strategies", "target_price_basis", "VARCHAR(50)")
     _migrate_add_column("analysis_strategies", "extraction_note",    "TEXT")
     _migrate_add_column("screening_candidates", "board_level",       "INT NOT NULL DEFAULT 1")
+    _migrate_add_column("screening_candidates", "code",              "VARCHAR(6)")
+    _migrate_add_column("screening_candidates", "price",             "FLOAT")
+    _migrate_add_column("screening_candidates", "pct_change",        "FLOAT")
 
 
 def _migrate_add_column(table: str, column: str, column_def: str) -> None:
