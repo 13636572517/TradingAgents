@@ -533,11 +533,37 @@ def get_tf_stock_detail(ticker: str, kline_days: int = 90,
         if items:
             it = items[0]
             ext = it.get("ext") or {}
+            price = it.get("last_price")
+
+            # TickFlow's quote payload doesn't carry pe/pb/mktcap directly —
+            # derive them the same way the screener's whole-market snapshot
+            # does, from shares outstanding (instruments) and BPS/EPS-TTM
+            # (financials), both of which are cheap thanks to the cache.
+            six = tf_code.split(".")[0].zfill(6)
+            pe = pb = total_mktcap = float_mktcap = None
+            try:
+                instr = tf_instruments([tf_code]).get(six) or {}
+                fin = tf_financials_valuation([tf_code]).get(six) or {}
+                tshare = instr.get("total_shares")
+                fshare = instr.get("float_shares")
+                bps = fin.get("bps")
+                eps_ttm = fin.get("eps_ttm")
+                if price and eps_ttm and eps_ttm > 0:
+                    pe = round(price / eps_ttm, 2)
+                if price and bps and bps > 0:
+                    pb = round(price / bps, 4)
+                if price and tshare:
+                    total_mktcap = price * tshare
+                if price and fshare:
+                    float_mktcap = price * fshare
+            except Exception as e:
+                out["errors"].append(f"valuation: {e}")
+
             out["quote"] = {
                 "symbol": it.get("symbol"),
                 "code": tf_code.split(".")[0],
                 "name": ext.get("name"),
-                "last_price": it.get("last_price"),
+                "last_price": price,
                 "prev_close": it.get("prev_close"),
                 "open":       it.get("open"),
                 "high":       it.get("high"),
@@ -547,10 +573,10 @@ def get_tf_stock_detail(ticker: str, kline_days: int = 90,
                 "change_pct":   ext.get("change_pct"),
                 "amplitude":    ext.get("amplitude"),
                 "turnover_rate": ext.get("turnover_rate"),
-                "total_mktcap":  ext.get("total_mktcap") or ext.get("mktcap"),
-                "float_mktcap":  ext.get("float_mktcap"),
-                "pe":  ext.get("pe"),
-                "pb":  ext.get("pb"),
+                "total_mktcap":  total_mktcap,
+                "float_mktcap":  float_mktcap,
+                "pe":  pe,
+                "pb":  pb,
             }
         else:
             out["errors"].append("quote: empty")

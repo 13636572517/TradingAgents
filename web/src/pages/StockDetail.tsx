@@ -31,8 +31,11 @@ function pctClass(v: number | null | undefined): string {
   return v > 0 ? "text-red-400" : "text-green-400"
 }
 
-// Simple SVG sparkline for the K-line preview
+// Simple SVG sparkline for the K-line preview, with a price scale and a
+// hover crosshair/tooltip showing the exact date + close price.
 function KlineSpark({ bars }: { bars: StockDetailKline[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+
   if (bars.length < 2) return <div className="text-xs text-gray-500">K线数据不足</div>
 
   const closes = bars.map((b) => b.close ?? 0)
@@ -44,16 +47,53 @@ function KlineSpark({ bars }: { bars: StockDetailKline[] }) {
   const points = closes.map((c, i) => {
     const x = pad + i * step
     const y = pad + (1 - (c - min) / range) * (h - pad * 2)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(" ")
+    return { x, y }
+  })
+  const pointsStr = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
   const first = closes[0], last = closes[closes.length - 1]
   const upTrend = last >= first
   const color = upTrend ? "#f87171" : "#4ade80"
 
+  const handleMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const relX = (e.clientX - rect.left) / rect.width
+    const idx = Math.max(0, Math.min(closes.length - 1, Math.round(relX * (closes.length - 1))))
+    setHoverIdx(idx)
+  }
+
+  const hover = hoverIdx !== null ? { bar: bars[hoverIdx], pt: points[hoverIdx] } : null
+  const tooltipRight = hover ? hover.pt.x > w / 2 : false
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" preserveAspectRatio="none">
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" />
-    </svg>
+    <div className="relative">
+      <div className="absolute left-1 top-0 text-[10px] text-gray-500 font-mono pointer-events-none">{max.toFixed(2)}</div>
+      <div className="absolute left-1 bottom-0 text-[10px] text-gray-500 font-mono pointer-events-none">{min.toFixed(2)}</div>
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full cursor-crosshair"
+        preserveAspectRatio="none"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <polyline points={pointsStr} fill="none" stroke={color} strokeWidth="1.5" />
+        {hover && (
+          <>
+            <line x1={hover.pt.x} x2={hover.pt.x} y1={pad} y2={h - pad}
+                  stroke="#6b7280" strokeWidth="0.75" strokeDasharray="3,3" />
+            <circle cx={hover.pt.x} cy={hover.pt.y} r="2.5" fill={color} />
+          </>
+        )}
+      </svg>
+      {hover && (
+        <div
+          className="absolute top-1 text-[10px] font-mono bg-bg/95 border border-border rounded px-1.5 py-1 pointer-events-none whitespace-nowrap"
+          style={tooltipRight ? { right: 0 } : { left: 0 }}
+        >
+          <div className="text-gray-500">{hover.bar.date}</div>
+          <div className="text-gray-200">{(hover.bar.close ?? 0).toFixed(2)}</div>
+        </div>
+      )}
+    </div>
   )
 }
 
