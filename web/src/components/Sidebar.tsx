@@ -1,6 +1,7 @@
 // web/src/components/Sidebar.tsx
 import { NavLink } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
+import { useState, type ReactNode } from "react"
 
 const NAV = [
   { to: "/new",      icon: "＋",  label: "新建分析" },
@@ -10,6 +11,30 @@ const NAV = [
   { to: "/stats",    icon: "📊",  label: "用量统计" },
   { to: "/settings", icon: "⚙️", label: "设置" },
 ]
+
+// ── Tooltip wrapper ─────────────────────────────────────────────────────────────
+
+function Tip({ children, text }: { children: ReactNode; text: string }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <div
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className="cursor-pointer"
+      >
+        {children}
+      </div>
+      {show && (
+        <span className="absolute left-full top-1/2 -translate-y-1/2 ml-3 whitespace-nowrap rounded px-2.5 py-1 text-xs bg-yellow-100 text-black shadow-md border border-yellow-200 z-50 pointer-events-none">
+          {text}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ── Sidebar ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   unseen: number
@@ -26,59 +51,61 @@ export default function Sidebar({ unseen, onHistoryClick }: Props) {
       </div>
       {NAV.map((item) =>
         item.to === "/history" ? (
-          <button
-            key={item.to}
-            onClick={onHistoryClick}
-            className="relative w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 text-gray-400 hover:text-accent transition-colors text-lg"
-            title={item.label}
-          >
-            {item.icon}
-            {unseen > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">
-                {unseen > 9 ? "9+" : unseen}
-              </span>
-            )}
-          </button>
+          <Tip key={item.to} text={item.label}>
+            <button
+              onClick={onHistoryClick}
+              className="relative w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 text-gray-400 hover:text-accent transition-colors text-lg"
+            >
+              {item.icon}
+              {unseen > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">
+                  {unseen > 9 ? "9+" : unseen}
+                </span>
+              )}
+            </button>
+          </Tip>
         ) : (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 transition-colors text-lg ${
-                isActive
-                  ? "text-accent bg-accent/10"
-                  : "text-gray-400 hover:text-accent"
-              }`
-            }
-            title={item.label}
-          >
-            {item.icon}
-          </NavLink>
+          <Tip key={item.to} text={item.label}>
+            <NavLink
+              to={item.to}
+              className={({ isActive }) =>
+                `w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 transition-colors text-lg ${
+                  isActive
+                    ? "text-accent bg-accent/10"
+                    : "text-gray-400 hover:text-accent"
+                }`
+              }
+            >
+              {item.icon}
+            </NavLink>
+          </Tip>
         )
       )}
 
       {/* 管理员入口 + 退出按钮，固定在底部 */}
       <div className="mt-auto flex flex-col items-center gap-3">
         {isAdmin && (
-          <NavLink
-            to="/admin"
-            className={({ isActive }) =>
-              `w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 transition-colors text-lg ${
-                isActive ? "text-accent bg-accent/10" : "text-gray-400 hover:text-accent"
-              }`
-            }
-            title="用户管理"
-          >
-            👥
-          </NavLink>
+          <Tip text="用户管理">
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `w-10 h-10 flex items-center justify-center rounded hover:bg-accent/10 transition-colors text-lg ${
+                  isActive ? "text-accent bg-accent/10" : "text-gray-400 hover:text-accent"
+                }`
+              }
+            >
+              👥
+            </NavLink>
+          </Tip>
         )}
-        <button
-          onClick={logout}
-          className="w-10 h-10 flex items-center justify-center rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors text-lg"
-          title={`退出 (${username ?? ""})`}
-        >
-          ⏏
-        </button>
+        <Tip text={`退出 (${username ?? ""})`}>
+          <button
+            onClick={logout}
+            className="w-10 h-10 flex items-center justify-center rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition-colors text-lg"
+          >
+            ⏏
+          </button>
+        </Tip>
       </div>
     </aside>
   )
