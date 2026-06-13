@@ -271,6 +271,57 @@ export interface BoardMembersResponse {
   members: BoardMember[]
 }
 
+export interface StockDetailQuote {
+  symbol: string | null
+  code: string | null
+  name: string | null
+  last_price: number | null
+  prev_close: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  volume: number | null
+  amount: number | null
+  change_pct: number | null
+  amplitude: number | null
+  turnover_rate: number | null
+  total_mktcap: number | null
+  float_mktcap: number | null
+  pe: number | null
+  pb: number | null
+}
+
+export interface StockDetailKline {
+  date: string
+  open: number | null
+  high: number | null
+  low: number | null
+  close: number | null
+  volume: number | null
+  amount: number | null
+}
+
+export interface StockDetail {
+  ticker: string
+  tf_code: string
+  quote?: StockDetailQuote
+  metrics: Record<string, unknown>[]
+  balance: Record<string, unknown>[]
+  income: Record<string, unknown>[]
+  cashflow: Record<string, unknown>[]
+  klines: StockDetailKline[]
+  errors: string[]
+  past_analyses: { id: string; trade_date: string; created_at: string | null; depth: number }[]
+  last_screening: {
+    run_id: string
+    board_name: string
+    board_level: number
+    score: number | null
+    rank_in_board: number | null
+    reason: string | null
+  } | null
+}
+
 export interface ScreeningRun {
   id: string
   run_date: string

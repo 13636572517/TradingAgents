@@ -172,6 +172,69 @@ def get_board_members_endpoint(
     }
 
 
+# ── Single stock detail page (TickFlow data dump) ───────────────────────────────────
+
+@router.get("/stocks/{ticker}")
+def get_stock_detail_endpoint(
+    ticker: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the TickFlow data bundle for one stock's detail page.
+
+    Includes real-time quote, recent K-lines, recent quarterly metrics, and
+    the three financial statements. Also reports whether the user has any
+    prior Analysis records or screening candidate rows for this ticker so
+    the page can deep-link to past reports.
+    """
+    from tradingagents.dataflows.tickflow_data import get_tf_stock_detail, TickFlowError
+    ticker = ticker.upper()
+    try:
+        detail = get_tf_stock_detail(ticker)
+    except TickFlowError as e:
+        raise HTTPException(status_code=502, detail=f"TickFlow 数据拉取失败：{e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"内部错误：{e}")
+
+    # Past analyses for this user/ticker
+    past = (
+        db.query(Analysis)
+        .filter(Analysis.ticker == ticker,
+                Analysis.owner_id == current_user.id,
+                Analysis.status == "complete")
+        .order_by(Analysis.created_at.desc())
+        .limit(5).all()
+    )
+    detail["past_analyses"] = [{
+        "id": a.id,
+        "trade_date": a.trade_date,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "depth": a.depth,
+    } for a in past]
+
+    # Most recent screening pick of this ticker (any run, any board)
+    last_cand = (
+        db.query(ScreeningCandidate)
+        .join(ScreeningRun, ScreeningRun.id == ScreeningCandidate.run_id)
+        .filter(ScreeningCandidate.ticker == ticker)
+        .order_by(ScreeningRun.created_at.desc())
+        .first()
+    )
+    if last_cand:
+        detail["last_screening"] = {
+            "run_id": last_cand.run_id,
+            "board_name": last_cand.board_name,
+            "board_level": last_cand.board_level,
+            "score": last_cand.score,
+            "rank_in_board": last_cand.rank_in_board,
+            "reason": last_cand.reason,
+        }
+    else:
+        detail["last_screening"] = None
+
+    return detail
+
+
 # ── Trigger analysis on candidates ──────────────────────────────────────────────────
 
 @router.post("/candidates/{candidate_id}/analyze", response_model=AnalysisOut, status_code=201)

@@ -454,6 +454,126 @@ def get_tf_cashflow(
     return header + df.to_csv(index=False)
 
 
+# ── Stock detail aggregator (single-call payload for the detail page) ─────────
+
+def get_tf_stock_detail(ticker: str, kline_days: int = 90,
+                        history_quarters: int = 8) -> dict:
+    """Aggregate everything a single-stock detail page needs from TickFlow.
+
+    Returns a structured dict (not a CSV-ish string like the analyst-facing
+    getters above) so the frontend can render it without re-parsing:
+
+        {
+          quote:       {last_price, prev_close, open, high, low, volume, amount,
+                        change_pct, amplitude, turnover_rate, name, code, symbol},
+          metrics:     [ {period_end, roe, roa, net_margin, gross_margin,
+                          eps_basic, bps, revenue_yoy, net_income_yoy, ...}, ...],
+          balance:     [ latest 4 records, newest first ],
+          income:      [ latest 4 records, newest first ],
+          cashflow:    [ latest 4 records, newest first ],
+          klines:      [ {date, open, high, low, close, volume, amount}, ...],
+          errors:      [ "section: reason", ... ]  # only non-fatal section errors
+        }
+
+    Each section is wrapped in its own try/except so a single TickFlow blip
+    on one endpoint doesn't blank out the whole detail page.
+    """
+    tf_code = _to_tf_code(ticker)
+    out: dict = {
+        "ticker": ticker.upper(),
+        "tf_code": tf_code,
+        "errors": [],
+    }
+
+    # 1) Real-time quote
+    try:
+        resp = _post("quotes", {"symbols": [tf_code]})
+        items = resp.get("data") or []
+        if items:
+            it = items[0]
+            ext = it.get("ext") or {}
+            out["quote"] = {
+                "symbol": it.get("symbol"),
+                "code": tf_code.split(".")[0],
+                "name": ext.get("name"),
+                "last_price": it.get("last_price"),
+                "prev_close": it.get("prev_close"),
+                "open":       it.get("open"),
+                "high":       it.get("high"),
+                "low":        it.get("low"),
+                "volume":     it.get("volume"),
+                "amount":     it.get("amount"),
+                "change_pct":   ext.get("change_pct"),
+                "amplitude":    ext.get("amplitude"),
+                "turnover_rate": ext.get("turnover_rate"),
+                "total_mktcap":  ext.get("total_mktcap") or ext.get("mktcap"),
+                "float_mktcap":  ext.get("float_mktcap"),
+                "pe":  ext.get("pe"),
+                "pb":  ext.get("pb"),
+            }
+        else:
+            out["errors"].append("quote: empty")
+    except Exception as e:
+        out["errors"].append(f"quote: {e}")
+
+    # 2) Financial metrics history (recent N quarters)
+    try:
+        start = (datetime.now() - __import__("datetime").timedelta(
+            days=int(history_quarters * 95))).strftime("%Y%m%d")
+        resp = _get("financials/metrics", {"symbols": tf_code, "start_date": start})
+        recs = (resp.get("data") or {}).get(tf_code, []) or []
+        recs = sorted(recs, key=lambda r: r.get("period_end") or "", reverse=True)
+        out["metrics"] = recs[:history_quarters]
+    except Exception as e:
+        out["errors"].append(f"metrics: {e}")
+        out["metrics"] = []
+
+    # 3-5) Three statements (latest 4 periods each)
+    for sname, path in (("balance",  "financials/balance-sheet"),
+                        ("income",   "financials/income"),
+                        ("cashflow", "financials/cash-flow")):
+        try:
+            start = (datetime.now() - __import__("datetime").timedelta(
+                days=int(history_quarters * 95))).strftime("%Y%m%d")
+            resp = _get(path, {"symbols": tf_code, "start_date": start})
+            recs = (resp.get("data") or {}).get(tf_code, []) or []
+            recs = sorted(recs, key=lambda r: r.get("period_end") or "", reverse=True)
+            out[sname] = recs[:4]
+        except Exception as e:
+            out["errors"].append(f"{sname}: {e}")
+            out[sname] = []
+
+    # 6) Recent K-lines
+    try:
+        end_dt = datetime.now()
+        start_dt = end_dt - __import__("datetime").timedelta(days=int(kline_days * 1.6))
+        resp = _get("klines", {
+            "symbol": tf_code, "period": "1d",
+            "start_time": int(start_dt.timestamp() * 1000),
+            "end_time":   int(end_dt.timestamp() * 1000) + 86399999,
+            "adjust": "forward",
+        })
+        data = resp.get("data") or {}
+        bars = []
+        for i, ts in enumerate(data.get("timestamp", [])):
+            bars.append({
+                "date": _ts_to_date(ts),
+                "open": data.get("open", [None])[i] if i < len(data.get("open", [])) else None,
+                "high": data.get("high", [None])[i] if i < len(data.get("high", [])) else None,
+                "low":  data.get("low",  [None])[i] if i < len(data.get("low",  [])) else None,
+                "close": data.get("close", [None])[i] if i < len(data.get("close", [])) else None,
+                "volume": data.get("volume", [None])[i] if i < len(data.get("volume", [])) else None,
+                "amount": data.get("amount", [None])[i] if i < len(data.get("amount", [])) else None,
+            })
+        # Keep only the most recent N trading days
+        out["klines"] = bars[-kline_days:] if bars else []
+    except Exception as e:
+        out["errors"].append(f"klines: {e}")
+        out["klines"] = []
+
+    return out
+
+
 # ── Connection test ────────────────────────────────────────────────────────────
 
 def test_tf_connection(api_key: Optional[str] = None) -> dict:

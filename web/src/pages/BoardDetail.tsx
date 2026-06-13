@@ -178,7 +178,8 @@ export default function BoardDetail() {
               {sorted.map((m) => (
                 <tr
                   key={m.code}
-                  className={m.is_candidate ? "bg-accent/5" : "hover:bg-surface-2/50"}
+                  onClick={() => navigate(`/screener/stocks/${encodeURIComponent(m.ticker)}`)}
+                  className={`cursor-pointer ${m.is_candidate ? "bg-accent/5 hover:bg-accent/10" : "hover:bg-surface-2/50"}`}
                 >
                   <td className="px-2 py-2 text-gray-500">
                     {m.is_candidate ? (
@@ -210,7 +211,7 @@ export default function BoardDetail() {
                   </td>
                   <td className="px-2 py-2 text-center">
                     <button
-                      onClick={() => handleAnalyze(m)}
+                      onClick={(e) => { e.stopPropagation(); handleAnalyze(m) }}
                       disabled={analyzingTicker === m.ticker}
                       className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-50"
                     >

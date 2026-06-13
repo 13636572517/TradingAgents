@@ -161,6 +161,10 @@ export const api = {
     http.get<BoardMembersResponse>(
       `/screener/runs/${runId}/boards/${level}/${encodeURIComponent(boardName)}/members`
     ).then((r) => r.data),
+  getStockDetail: (ticker: string) =>
+    http.get<import("../types").StockDetail>(
+      `/screener/stocks/${encodeURIComponent(ticker)}`
+    ).then((r) => r.data),
 
   // ── Admin ─────────────────────────────────────────────────────────────────────
   adminListUsers: () => http.get<AdminUser[]>("/admin/users").then((r) => r.data),

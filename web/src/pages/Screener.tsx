@@ -413,7 +413,11 @@ export default function Screener() {
                       </thead>
                       <tbody className="divide-y divide-border">
                         {tableCandidates.map((c) => (
-                          <tr key={`${c.board_name}-${c.ticker}`} className="hover:bg-white/[0.02]">
+                          <tr
+                            key={`${c.board_name}-${c.ticker}`}
+                            onClick={() => navigate(`/screener/stocks/${encodeURIComponent(c.ticker)}`)}
+                            className="hover:bg-white/[0.04] cursor-pointer"
+                          >
                             <td className="px-2 py-2 text-gray-500">
                               <span className="inline-flex items-center gap-1">
                                 <span className="text-[9px] px-1 rounded bg-accent/20 text-accent">候选</span>
@@ -448,13 +452,14 @@ export default function Screener() {
                             </td>
                             <td className="px-2 py-2 text-center">
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation()
                                   if (c.analysis_id) navigate(`/report/${c.analysis_id}`)
-                                  else navigate(`/screener/runs/${run.id}/boards/${c.board_level}/${encodeURIComponent(c.board_name)}`)
+                                  else navigate(`/screener/stocks/${encodeURIComponent(c.ticker)}`)
                                 }}
                                 className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30"
                               >
-                                {c.analysis_id ? "查看" : "分析"}
+                                {c.analysis_id ? "查看" : "详情"}
                               </button>
                             </td>
                           </tr>
