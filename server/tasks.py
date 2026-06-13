@@ -610,6 +610,7 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
     from server.screener import run_screening
 
     db = SessionLocal()
+    run = None
     try:
         run = db.get(ScreeningRun, run_id)
         if not run:
@@ -704,6 +705,21 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
                 except Exception as e:
                     logger.warning("auto-analyze failed for %s: %s", tk, e)
                     db.rollback()
+    except Exception as e:
+        # Safety net: any uncaught error (incl. DB commit failures during
+        # persistence) must not leave the row stuck in 'running' — otherwise
+        # the frontend polls a zombie progress message forever.
+        logger.exception("run_screening_task uncaught error for run %s", run_id)
+        if run is not None:
+            try:
+                db.rollback()
+                run.status = "failed"
+                run.error = f"任务异常中断：{type(e).__name__}: {e}"
+                run.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                logger.exception("failed to mark run %s as failed", run_id)
+        raise
     finally:
         db.close()
 

@@ -48,6 +48,59 @@ def _hydrate_db_keys():
 _hydrate_db_keys()
 
 
+# ── Reap zombie 'running' rows left over from a previous worker crash ──────────
+#
+# Celery workers can be SIGKILLed mid-task (deploys, OOM, container restarts).
+# Any ScreeningRun / Analysis row pinned at status='running' before the kill is
+# now orphaned — no worker will ever complete it. We sweep on worker_ready so
+# the frontend's polling UI doesn't show a permanent "进行中…" spinner.
+#
+# Threshold: older than 30 minutes. A real in-flight task on another worker
+# would normally finish within that window; anything older is almost certainly
+# a leftover.
+
+from celery.signals import worker_ready  # noqa: E402
+
+
+@worker_ready.connect
+def _reap_zombie_runs(**_kwargs):
+    from datetime import datetime, timedelta
+    cutoff = datetime.utcnow() - timedelta(minutes=30)
+    try:
+        from server.database import SessionLocal
+        from server.models import ScreeningRun, Analysis
+        with SessionLocal() as db:
+            n_screen = (
+                db.query(ScreeningRun)
+                .filter(ScreeningRun.status == "running",
+                        ScreeningRun.created_at < cutoff)
+                .update({
+                    ScreeningRun.status: "failed",
+                    ScreeningRun.error: "Worker 重启导致任务中断，请重新发起。",
+                    ScreeningRun.completed_at: datetime.utcnow(),
+                }, synchronize_session=False)
+            )
+            n_anal = (
+                db.query(Analysis)
+                .filter(Analysis.status == "running",
+                        Analysis.created_at < cutoff)
+                .update({
+                    Analysis.status: "failed",
+                    Analysis.error: "Worker 重启导致任务中断，请重新发起。",
+                }, synchronize_session=False)
+            )
+            db.commit()
+            if n_screen or n_anal:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "reaped %d zombie screening runs, %d zombie analyses",
+                    n_screen, n_anal,
+                )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("zombie-run sweep failed")
+
+
 # Daily A-share screening after market close (Mon-Fri 16:00 CST).
 # Requires a Celery beat process: `celery -A server.celery_app beat`.
 from celery.schedules import crontab  # noqa: E402
