@@ -7,6 +7,10 @@ cd "$APP_DIR"
 
 echo "==> [1/4] 拉取最新代码..."
 git pull origin main
+# Re-exec so the rest of the script runs from the newly pulled version
+if [ -z "${_DEPLOY_RELOADED:-}" ]; then
+    exec env _DEPLOY_RELOADED=1 bash "$0" "$@"
+fi
 
 echo "==> [2/4] 安装 Python 依赖..."
 source venv/bin/activate
