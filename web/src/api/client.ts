@@ -76,6 +76,10 @@ export const api = {
   testConnection: () => http.post<TestResult>("/settings/test").then((r) => r.data),
   getFutuStatus: () =>
     http.get<{ connected: boolean; error?: string }>("/settings/futu-status").then((r) => r.data),
+  futuVerifyRequest: () =>
+    http.post<{ success: boolean; message: string }>("/settings/futu-verify/request").then((r) => r.data),
+  futuVerifySubmit: (code: string) =>
+    http.post<{ success: boolean; message: string }>("/settings/futu-verify/submit", { code }).then((r) => r.data),
   getJQStatus: () =>
     http.get<{ connected: boolean; username?: string; queries_remaining?: number; error?: string }>(
       "/settings/jq-status"

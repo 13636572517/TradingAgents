@@ -283,6 +283,87 @@ def futu_status():
     return result
 
 
+# ── Futu phone verification (raw-socket, bypasses SDK state machine) ───────────
+
+def _futu_send_verification(op: int, code: str = "") -> dict:
+    """Send a Verification proto (1006) directly to FutuOpenD via raw TCP.
+
+    op=1 → REQUEST (trigger SMS), op=2 → INPUT_AND_LOGIN (submit code).
+    Returns {"success": bool, "message": str}.
+    """
+    import hashlib, socket, struct
+    from futu.common.pb import Verification_pb2
+
+    req = Verification_pb2.Request()
+    req.c2s.type = Verification_pb2.VerificationType_Phone
+    req.c2s.op = op
+    if code:
+        req.c2s.code = code
+    body = req.SerializeToString()
+
+    sha20 = hashlib.sha1(body).digest()
+    reserve8 = b"\x00" * 8
+    PROTO_ID, PROTO_FMT, PROTO_VER, SERIAL_NO = 1006, 0, 0, 88888
+    fmt = "<1s1sI2B2I20s8s%ds" % len(body)
+    packet = struct.pack(
+        fmt, b"F", b"T", PROTO_ID, PROTO_FMT, PROTO_VER,
+        SERIAL_NO, len(body), sha20, reserve8, body,
+    )
+
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(8)
+        s.connect(("127.0.0.1", 11111))
+        s.sendall(packet)
+        resp = s.recv(4096)
+        s.close()
+    except Exception as exc:
+        return {"success": False, "message": f"无法连接 FutuOpenD: {exc}"}
+
+    # Parse response header: <1s1sIBBI20s8s
+    HEADER_FMT = "<1s1sI2B2I20s8s"
+    header_size = struct.calcsize(HEADER_FMT)
+    if len(resp) < header_size:
+        return {"success": False, "message": "响应包过短"}
+
+    hdr = struct.unpack(HEADER_FMT, resp[:header_size])
+    body_len = hdr[6]
+    resp_body = resp[header_size: header_size + body_len]
+
+    try:
+        rsp_pb = Verification_pb2.Response()
+        rsp_pb.ParseFromString(resp_body)
+        ret_type = rsp_pb.retType
+        ret_msg = rsp_pb.retMsg or ""
+    except Exception as exc:
+        return {"success": False, "message": f"解析响应失败: {exc}"}
+
+    if ret_type == 0:
+        return {"success": True, "message": ret_msg or "操作成功"}
+    return {"success": False, "message": ret_msg or f"FutuOpenD 返回错误 {ret_type}"}
+
+
+@router.post("/futu-verify/request")
+def futu_verify_request():
+    """Ask FutuOpenD to send an SMS verification code to the registered phone."""
+    return _futu_send_verification(op=1)
+
+
+class FutuVerifySubmit(BaseModel):
+    code: str
+
+
+@router.post("/futu-verify/submit")
+def futu_verify_submit(payload: FutuVerifySubmit):
+    """Submit the SMS verification code to FutuOpenD to complete authentication."""
+    code = (payload.code or "").strip()
+    if not code:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="验证码不能为空")
+    result = _futu_send_verification(op=2, code=code)
+    return result
+
+
 @router.get("/jq-status")
 def jq_status():
     from tradingagents.dataflows.jq_data import test_jq_connection

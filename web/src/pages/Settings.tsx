@@ -57,6 +57,11 @@ function FutuPanel() {
   const [status, setStatus] = useState<{ connected: boolean; error?: string } | null>(null)
   const [checking, setChecking] = useState(false)
 
+  // phone verification state
+  const [verifyStep, setVerifyStep] = useState<"idle" | "requesting" | "code_sent" | "submitting" | "done">("idle")
+  const [verifyCode, setVerifyCode] = useState("")
+  const [verifyMsg, setVerifyMsg] = useState<{ success: boolean; text: string } | null>(null)
+
   const check = async () => {
     setChecking(true)
     try {
@@ -68,6 +73,46 @@ function FutuPanel() {
       setChecking(false)
     }
   }
+
+  const requestCode = async () => {
+    setVerifyStep("requesting")
+    setVerifyMsg(null)
+    try {
+      const r = await api.futuVerifyRequest()
+      if (r.success) {
+        setVerifyStep("code_sent")
+        setVerifyMsg({ success: true, text: "验证码已发送到注册手机，请在 5 分钟内输入" })
+      } else {
+        setVerifyStep("idle")
+        setVerifyMsg({ success: false, text: r.message || "发送失败" })
+      }
+    } catch {
+      setVerifyStep("idle")
+      setVerifyMsg({ success: false, text: "请求失败，请检查 FutuOpenD 是否正在运行" })
+    }
+  }
+
+  const submitCode = async () => {
+    if (!verifyCode.trim()) return
+    setVerifyStep("submitting")
+    setVerifyMsg(null)
+    try {
+      const r = await api.futuVerifySubmit(verifyCode.trim())
+      if (r.success) {
+        setVerifyStep("done")
+        setVerifyMsg({ success: true, text: "✓ 验证成功！FutuOpenD 已重新认证，港股/美股数据恢复正常" })
+        setStatus(null) // reset so user can recheck
+      } else {
+        setVerifyStep("code_sent")
+        setVerifyMsg({ success: false, text: r.message || "验证码错误，请重试" })
+      }
+    } catch {
+      setVerifyStep("code_sent")
+      setVerifyMsg({ success: false, text: "提交失败，请重试" })
+    }
+  }
+
+  const needsVerify = status && !status.connected && status.error?.includes("手机验证码")
 
   return (
     <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
@@ -92,7 +137,7 @@ function FutuPanel() {
             : "bg-red-500/10 border border-red-500/30 text-red-400"
         }`}>
           {status.connected
-            ? "✓ OpenD 已连接，美股数据将优先使用富途"
+            ? "✓ OpenD 已连接，美股/港股数据正常"
             : `✗ OpenD 未连接 — ${status.error ?? "请确认 Futu App 已启动并开启 OpenD"}`}
         </div>
       )}
@@ -102,6 +147,59 @@ function FutuPanel() {
           <p>1. 下载安装 moomoo（境外版）或富途牛牛</p>
           <p>2. 登录后进入：设置 → API → 开启 OpenD</p>
           <p>3. 点击「检测连接」确认 127.0.0.1:11111 可达</p>
+        </div>
+      )}
+
+      {/* ── Phone verification panel — shown when OpenD needs re-auth ── */}
+      {(needsVerify || verifyStep !== "idle" || verifyMsg) && (
+        <div className="mt-3 border border-yellow-500/30 rounded bg-yellow-500/5 p-3 space-y-2">
+          <p className="text-yellow-400 text-xs font-medium">富途 OpenD 需要手机二次验证</p>
+
+          {verifyStep === "idle" || verifyStep === "requesting" ? (
+            <button
+              onClick={requestCode}
+              disabled={verifyStep === "requesting"}
+              className="text-xs px-3 py-1.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30 disabled:opacity-50 transition-colors"
+            >
+              {verifyStep === "requesting" ? "发送中…" : "发送手机验证码"}
+            </button>
+          ) : null}
+
+          {(verifyStep === "code_sent" || verifyStep === "submitting" || verifyStep === "done") && (
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value)}
+                placeholder="输入 6 位验证码"
+                maxLength={8}
+                disabled={verifyStep === "submitting" || verifyStep === "done"}
+                className="text-xs px-2 py-1.5 rounded bg-background border border-border text-white w-32 disabled:opacity-50 focus:outline-none focus:border-accent"
+              />
+              <button
+                onClick={submitCode}
+                disabled={verifyStep === "submitting" || verifyStep === "done" || !verifyCode.trim()}
+                className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-50 transition-colors"
+              >
+                {verifyStep === "submitting" ? "验证中…" : "提交验证码"}
+              </button>
+              {verifyStep !== "done" && (
+                <button
+                  onClick={requestCode}
+                  disabled={verifyStep === "submitting"}
+                  className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50 transition-colors"
+                >
+                  重新发送
+                </button>
+              )}
+            </div>
+          )}
+
+          {verifyMsg && (
+            <p className={`text-xs ${verifyMsg.success ? "text-buy" : "text-red-400"}`}>
+              {verifyMsg.text}
+            </p>
+          )}
         </div>
       )}
     </div>

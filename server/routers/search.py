@@ -78,9 +78,17 @@ def _load_securities() -> list:
     # ── HK stocks ─────────────────────────────────────────────────────────
     hk_before = len(items)
     try:
-        # Load HK stocks from Futu OpenD (more reliable than akshare on servers)
+        # Load HK stocks from Futu OpenD with a timeout to avoid blocking if OpenD
+        # needs phone re-verification or is otherwise unavailable.
+        import concurrent.futures
         from tradingagents.dataflows.futu_data import get_futu_stock_list
-        hk_stocks = get_futu_stock_list(market="HK")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+            _fut = _ex.submit(get_futu_stock_list, "HK")
+            try:
+                hk_stocks = _fut.result(timeout=8)
+            except concurrent.futures.TimeoutError:
+                logger.warning("Futu HK stock list timed out (OpenD may need re-auth)")
+                hk_stocks = []
         if hk_stocks:
             for code, name in hk_stocks:
                 # Futu returns format like "HK.02513" or "02513"
