@@ -112,7 +112,7 @@ function FutuPanel() {
     }
   }
 
-  const needsVerify = status && !status.connected && status.error?.includes("手机验证码")
+  const needsVerify = status && !status.connected
 
   return (
     <div className="mt-8 bg-surface border border-border rounded-lg p-4 text-sm">
@@ -153,7 +153,7 @@ function FutuPanel() {
       {/* ── Phone verification panel — shown when OpenD needs re-auth ── */}
       {(needsVerify || verifyStep !== "idle" || verifyMsg) && (
         <div className="mt-3 border border-yellow-500/30 rounded bg-yellow-500/5 p-3 space-y-2">
-          <p className="text-yellow-400 text-xs font-medium">富途 OpenD 需要手机二次验证</p>
+          <p className="text-yellow-400 text-xs font-medium">手机验证码 — 若 OpenD 提示需要重新认证，在此操作</p>
 
           {verifyStep === "idle" || verifyStep === "requesting" ? (
             <button

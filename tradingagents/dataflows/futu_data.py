@@ -233,60 +233,18 @@ def get_futu_cashflow(
 # ── Connection test ────────────────────────────────────────────────────────────
 
 def test_futu_connection() -> dict:
-    """Test Futu OpenD connectivity via raw TCP (non-blocking, no SDK state machine)."""
-    import hashlib, socket, struct
-
-    # Send a minimal InitConnect proto to FutuOpenD and read the response message.
-    # We only need to know whether OpenD is up and whether it needs phone verification.
+    """Test Futu OpenD connectivity — simple TCP reachability check."""
+    import socket
     try:
-        # Build a bare-minimum InitConnect request (proto 1001, protobuf fmt)
-        # Body: empty protobuf is fine — FutuOpenD replies with its state.
-        body = b""
-        sha20 = hashlib.sha1(body).digest()
-        reserve8 = b"\x00" * 8
-        PROTO_ID, PROTO_FMT, PROTO_VER, SERIAL_NO = 1001, 0, 0, 99999
-        fmt = "<1s1sI2B2I20s8s0s"
-        packet = struct.pack(
-            fmt, b"F", b"T", PROTO_ID, PROTO_FMT, PROTO_VER,
-            SERIAL_NO, 0, sha20, reserve8,
-        )
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(5)
+        s.settimeout(3)
         s.connect((_FUTU_HOST, _FUTU_PORT))
-        s.sendall(packet)
-        resp = s.recv(4096)
         s.close()
+        return {"connected": True, "host": _FUTU_HOST, "port": _FUTU_PORT}
     except OSError:
         return {"connected": False, "error": "FutuOpenD 未运行或端口不可达"}
     except Exception as e:
         return {"connected": False, "error": str(e)}
-
-    # Parse the raw response to extract retMsg
-    HEADER_FMT = "<1s1sI2B2I20s8s"
-    header_size = struct.calcsize(HEADER_FMT)
-    if len(resp) < header_size:
-        return {"connected": False, "error": "响应包异常"}
-
-    hdr = struct.unpack(HEADER_FMT, resp[:header_size])
-    body_len = hdr[6]
-    resp_body = resp[header_size: header_size + body_len]
-
-    # Try to decode the InitConnect response protobuf for the retMsg
-    ret_msg = ""
-    try:
-        from futu.common.pb.InitConnect_pb2 import Response as InitResp
-        pb = InitResp()
-        pb.ParseFromString(resp_body)
-        ret_type = pb.retType
-        ret_msg = pb.retMsg or ""
-        if ret_type == 0:
-            return {"connected": True, "host": _FUTU_HOST, "port": _FUTU_PORT}
-    except Exception:
-        pass
-
-    if "手机验证码" in ret_msg or "phone" in ret_msg.lower():
-        return {"connected": False, "error": "需要手机验证码"}
-    return {"connected": False, "error": ret_msg or "FutuOpenD 连接失败"}
 
 
 # ── Stock list ─────────────────────────────────────────────────────────────────
