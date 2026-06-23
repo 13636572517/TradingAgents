@@ -502,6 +502,11 @@ export default function StrategyDashboard() {
     return s.direction === filter && s.status !== "closed"
   })
 
+  // For "all" view: active first, then expired separated by a divider
+  const filteredActive  = filtered.filter((s) => s.status === "active")
+  const filteredExpired = filtered.filter((s) => s.status === "expired")
+  const showDivider = filter === "all" && filteredActive.length > 0 && filteredExpired.length > 0
+
   const counts = {
     active: strategies.filter((s) => s.status === "active").length,
     buy:    strategies.filter((s) => s.status === "active" && s.direction === "BUY").length,
@@ -523,7 +528,7 @@ export default function StrategyDashboard() {
             onClick={handleBackfill}
             disabled={backfilling || bulkExtracting}
             className="text-xs px-3 py-1.5 rounded border border-border text-gray-400 hover:border-accent hover:text-accent disabled:opacity-40 transition-colors"
-            title="为尚未提取策略的历史分析新增记录"
+            title="从历史分析提取策略（已有记录的分析会跳过；可用 AI批量重提 强制更新）"
           >
             {backfilling ? "回填中…" : "↺ 回填历史"}
           </button>
@@ -600,21 +605,52 @@ export default function StrategyDashboard() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((s) => (
-            <StrategyCard
-              key={s.id}
-              s={s}
-              costPrice={costPrices[s.ticker] ?? null}
-              onCostPriceChange={(v) => handleCostPriceChange(s.ticker, v)}
-              onClose={() => handleClose(s.id)}
-              onClick={() => navigate(`/report/${s.analysis_id}`)}
-              onReExtract={() => handleReExtract(s.id)}
-              reExtracting={reExtractingId === s.id}
-              onReAnalyze={() => navigate(`/new?ticker=${encodeURIComponent(s.ticker)}`)}
-            />
-          ))}
-        </div>
+        <>
+          {/* Active (or full list when not in "all" mode) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(showDivider ? filteredActive : filtered).map((s) => (
+              <StrategyCard
+                key={s.id}
+                s={s}
+                costPrice={costPrices[s.ticker] ?? null}
+                onCostPriceChange={(v) => handleCostPriceChange(s.ticker, v)}
+                onClose={() => handleClose(s.id)}
+                onClick={() => navigate(`/report/${s.analysis_id}`)}
+                onReExtract={() => handleReExtract(s.id)}
+                reExtracting={reExtractingId === s.id}
+                onReAnalyze={() => navigate(`/new?ticker=${encodeURIComponent(s.ticker)}`)}
+              />
+            ))}
+          </div>
+
+          {/* Divider between active and expired (only in "all" view) */}
+          {showDivider && (
+            <>
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-gray-600 whitespace-nowrap">
+                  以下策略已过期（报告发出超过 7 天）
+                </span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+                {filteredExpired.map((s) => (
+                  <StrategyCard
+                    key={s.id}
+                    s={s}
+                    costPrice={costPrices[s.ticker] ?? null}
+                    onCostPriceChange={(v) => handleCostPriceChange(s.ticker, v)}
+                    onClose={() => handleClose(s.id)}
+                    onClick={() => navigate(`/report/${s.analysis_id}`)}
+                    onReExtract={() => handleReExtract(s.id)}
+                    reExtracting={reExtractingId === s.id}
+                    onReAnalyze={() => navigate(`/new?ticker=${encodeURIComponent(s.ticker)}`)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
       )}
 
       <p className="text-[10px] text-gray-700 mt-8 text-center">

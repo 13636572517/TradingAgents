@@ -95,7 +95,7 @@ def refresh_prices(db: Session = Depends(get_db)):
     from server.strategy_extractor import get_stock_current_price
 
     rows = db.query(AnalysisStrategy).filter(
-        AnalysisStrategy.status == "active"
+        AnalysisStrategy.status.in_(["active", "expired"])
     ).all()
 
     updated = []

@@ -633,24 +633,30 @@ export default function Screener() {
                     <div className="text-xs text-gray-500 mb-2">
                       估值筛选规则（勾选启用，多条规则为「且」关系）
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-1">
                       {FILTER_RULES.map((rule) => (
                         <label
                           key={rule.key}
-                          title={rule.description}
-                          className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border cursor-pointer transition-colors ${
+                          className={`flex items-start gap-2.5 px-2.5 py-2 rounded border cursor-pointer transition-colors ${
                             activeRules.has(rule.key)
-                              ? "border-accent/40 bg-accent/10 text-accent"
-                              : "border-border text-gray-400 hover:border-gray-500"
+                              ? "border-accent/40 bg-accent/10"
+                              : "border-border hover:border-gray-500"
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={activeRules.has(rule.key)}
                             onChange={() => toggleRule(rule.key)}
-                            className="accent-accent"
+                            className="accent-accent mt-0.5 shrink-0"
                           />
-                          {rule.label}
+                          <div>
+                            <div className={`text-xs font-medium ${activeRules.has(rule.key) ? "text-accent" : "text-gray-300"}`}>
+                              {rule.label}
+                            </div>
+                            <div className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                              {rule.description}
+                            </div>
+                          </div>
                         </label>
                       ))}
                     </div>
