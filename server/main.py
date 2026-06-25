@@ -54,8 +54,8 @@ app.include_router(screener_router,      dependencies=_auth_dep)
 @app.on_event("startup")
 def on_startup():
     init_db()
-    # Re-hydrate the TickFlow API key from the DB into the process env so the
-    # market-data client can authenticate after a restart.
+    # Re-hydrate API keys from the DB into the process env so clients can
+    # authenticate after a restart.
     try:
         from server.database import SessionLocal
         from server.models import AppSettings
@@ -63,6 +63,24 @@ def on_startup():
             _s = _db.get(AppSettings, 1)
             if _s and _s.tickflow_api_key:
                 os.environ["TICKFLOW_API_KEY"] = _s.tickflow_api_key
+            # Re-hydrate LLM API key based on saved provider
+            if _s and _s.api_key and _s.provider:
+                _PROVIDER_ENV = {
+                    "qwen":       "DASHSCOPE_API_KEY",
+                    "qwen-cn":    "DASHSCOPE_CN_API_KEY",
+                    "openai":     "OPENAI_API_KEY",
+                    "anthropic":  "ANTHROPIC_API_KEY",
+                    "deepseek":   "DEEPSEEK_API_KEY",
+                    "glm":        "ZHIPU_API_KEY",
+                    "glm-cn":     "ZHIPU_CN_API_KEY",
+                    "google":     "GOOGLE_API_KEY",
+                    "xai":        "XAI_API_KEY",
+                    "minimax":    "MINIMAX_API_KEY",
+                    "minimax-cn": "MINIMAX_API_KEY",
+                }
+                _env_var = _PROVIDER_ENV.get(_s.provider)
+                if _env_var:
+                    os.environ[_env_var] = _s.api_key
     except Exception:
         pass  # non-critical; key can still be set via the settings UI
     # Pre-warm the stock search cache in a background thread so the first

@@ -700,6 +700,12 @@ export default function SettingsPage() {
       setMaxApiCalls(s.max_api_calls ?? 60)
       setInputCostPerMillion(s.input_cost_per_million ?? 0.0)
       setOutputCostPerMillion(s.output_cost_per_million ?? 0.0)
+      // Pre-fill the API key input with the masked value so the user can
+      // see that a key is configured. The masked value is read-only — any
+      // user edit replaces it with a new raw key.
+      if (s.masked_api_key) {
+        setApiKey(s.masked_api_key)
+      }
       api.getModels(s.provider).then((data) => {
         setQuickModels(data.quick)
         setDeepModels(data.deep)
@@ -797,17 +803,19 @@ export default function SettingsPage() {
             <input
               type={showKey ? "text" : "password"}
               className="w-full bg-surface border border-border rounded-md px-3 py-2 text-white focus:outline-none focus:border-accent pr-16"
-              placeholder={saved?.has_api_key ? "留空则保留现有 Key" : "粘贴你的 API Key"}
+              placeholder={saved?.has_api_key ? `当前: ${saved.masked_api_key ?? "已配置"}（输入新 Key 可覆盖）` : "粘贴你的 API Key"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white px-2 py-1"
-            >
-              {showKey ? "隐藏" : "显示"}
-            </button>
+            {saved?.has_api_key && (
+              <button
+                type="button"
+                onClick={() => setShowKey((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white px-2 py-1"
+              >
+                {showKey ? "隐藏" : "显示"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -986,7 +994,9 @@ export default function SettingsPage() {
             <span className="font-mono text-xs">{saved.quick_model}</span>
             <span className="text-gray-500">API Key</span>
             <span className={saved.has_api_key ? "text-buy" : "text-hold"}>
-              {saved.has_api_key ? "✓ 已配置" : "⚠ 未配置"}
+              {saved.has_api_key
+                ? `✓ ${saved.masked_api_key ?? "已配置"}`
+                : "⚠ 未配置"}
             </span>
             <span className="text-gray-500">调用上限</span>
             <span>{saved.max_api_calls ?? 60} 次/分析</span>

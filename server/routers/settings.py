@@ -30,6 +30,30 @@ _PROVIDER_ENV = {
 }
 
 
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    """Mask an API key, showing only the last 4 characters."""
+    if not key:
+        return None
+    if len(key) <= 10:
+        return key[:2] + "***"
+    return f"{key[:6]}…{key[-4:]}"
+
+
+def _settings_out(row: AppSettings) -> SettingsOut:
+    """Build a SettingsOut response from a DB row, including masked key."""
+    return SettingsOut(
+        provider=row.provider or "qwen-cn",
+        deep_model=row.deep_model or "qwen3.6-plus",
+        quick_model=row.quick_model or "qwen3.6-flash",
+        backend_url=row.backend_url,
+        has_api_key=bool(row.api_key),
+        masked_api_key=_mask_key(row.api_key),
+        max_api_calls=row.max_api_calls if row.max_api_calls is not None else 60,
+        input_cost_per_million=row.input_cost_per_million or 0.0,
+        output_cost_per_million=row.output_cost_per_million or 0.0,
+    )
+
+
 def _get_or_create(db: Session) -> AppSettings:
     row = db.get(AppSettings, 1)
     if not row:
@@ -45,16 +69,7 @@ def _get_or_create(db: Session) -> AppSettings:
 @router.get("", response_model=SettingsOut)
 def get_settings(db: Session = Depends(get_db)):
     row = _get_or_create(db)
-    return SettingsOut(
-        provider=row.provider or "qwen-cn",
-        deep_model=row.deep_model or "qwen3.6-plus",
-        quick_model=row.quick_model or "qwen3.6-flash",
-        backend_url=row.backend_url,
-        has_api_key=bool(row.api_key),
-        max_api_calls=row.max_api_calls if row.max_api_calls is not None else 60,
-        input_cost_per_million=row.input_cost_per_million or 0.0,
-        output_cost_per_million=row.output_cost_per_million or 0.0,
-    )
+    return _settings_out(row)
 
 
 # ── POST /api/settings ─────────────────────────────────────────────────────────
@@ -74,16 +89,7 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         row.api_key = payload.api_key
     db.commit()
     db.refresh(row)
-    return SettingsOut(
-        provider=row.provider,
-        deep_model=row.deep_model,
-        quick_model=row.quick_model,
-        backend_url=row.backend_url,
-        has_api_key=bool(row.api_key),
-        max_api_calls=row.max_api_calls,
-        input_cost_per_million=row.input_cost_per_million or 0.0,
-        output_cost_per_million=row.output_cost_per_million or 0.0,
-    )
+    return _settings_out(row)
 
 
 # ── GET /api/settings/models?provider=qwen-cn ─────────────────────────────────

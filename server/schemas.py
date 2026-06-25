@@ -59,6 +59,7 @@ class SettingsOut(BaseModel):
     quick_model: str
     backend_url: Optional[str]
     has_api_key: bool                  # true if key is stored, never expose the key itself
+    masked_api_key: Optional[str] = None  # e.g. "sk-proj...a1b2" — never the raw key
     max_api_calls: int = 60
     input_cost_per_million: float = 0.0
     output_cost_per_million: float = 0.0

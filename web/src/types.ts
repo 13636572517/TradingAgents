@@ -49,6 +49,7 @@ export interface Settings {
   quick_model: string
   backend_url: string | null
   has_api_key: boolean
+  masked_api_key: string | null
   max_api_calls: number
   input_cost_per_million: number
   output_cost_per_million: number
