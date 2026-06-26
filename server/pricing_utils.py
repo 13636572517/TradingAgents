@@ -64,96 +64,119 @@ def _clean_model_id(cell: str) -> Optional[str]:
     return None
 
 
-def parse_cn_pricing_md(md_text: str) -> dict[str, list]:
-    """Parse Alibaba Cloud Bailian pricing Markdown (中国内地 region).
+def _is_cn_region(cell: str) -> bool:
+    """Check if a cell value indicates a China mainland region."""
+    return bool(re.search(r'中国内地|华北|华东|华南|中国大陆', cell))
 
-    Returns:
-        {model_id: [{"max_k": int|None, "input_price": float, "output_price": float}, ...]}
-        Tiers are sorted ascending by max_k; last entry may have max_k=None (unlimited).
-    """
+
+def _extract_table_rows(text: str) -> list[list[str]]:
+    """Extract parsed table rows from Markdown text (skips separators and headers)."""
+    rows: list[list[str]] = []
+    for line in text.split('\n'):
+        if '|' not in line:
+            continue
+        raw_cells = line.split('|')
+        if len(raw_cells) < 4:
+            continue
+        cells = [c.strip() for c in raw_cells[1:-1]]
+        if all(re.match(r'^[-: ]*$', c) for c in cells if c):
+            continue
+        if any(kw in c for c in cells[:3] for kw in ('模型', 'Model', 'model', '模式', 'Mode')):
+            if not any('元' in c for c in cells):
+                continue
+        rows.append(cells)
+    return rows
+
+
+def _parse_rows_to_pricing(rows: list[list[str]]) -> dict[str, list]:
+    """Parse table rows into {model_id: [tier, ...]} dict."""
     result: dict[str, list] = {}
+    current_model: Optional[str] = None
 
-    # Find all ## headings to compute section boundaries
-    all_h2 = [m.start() for m in re.finditer(r'^##[^#]', md_text, re.MULTILINE)]
+    for cells in rows:
+        first_cell = cells[0] if cells else ''
+        maybe_model = _clean_model_id(first_cell)
+        if maybe_model:
+            current_model = maybe_model
+        if not current_model:
+            continue
 
-    # Find all 中国内地 sections (## 中国内地)
-    cn_positions = [m.start() for m in re.finditer(r'^## 中国内地', md_text, re.MULTILINE)]
+        token_range: Optional[str] = None
+        prices: list[float] = []
 
-    if not cn_positions:
-        logger.warning("No '## 中国内地' section found in pricing MD")
-
-    for cn_pos in cn_positions:
-        # Section ends at next ## heading
-        next_h2s = [p for p in all_h2 if p > cn_pos]
-        section_end = next_h2s[0] if next_h2s else len(md_text)
-        section = md_text[cn_pos:section_end]
-
-        current_model: Optional[str] = None
-
-        for line in section.split('\n'):
-            if '|' not in line:
+        for cell in cells:
+            if not cell:
                 continue
+            if 'Token' in cell or '无阶梯' in cell:
+                token_range = cell
+            elif '元' in cell:
+                p = _parse_price(cell)
+                if p is not None:
+                    prices.append(p)
 
-            # Parse pipe-delimited cells
-            raw_cells = line.split('|')
-            if len(raw_cells) < 4:
-                continue
-            cells = [c.strip() for c in raw_cells[1:-1]]  # strip border pipes
+        if len(prices) >= 2:
+            max_k = _parse_max_k(token_range) if token_range else None
+            tier: dict = {
+                "max_k": max_k,
+                "input_price": prices[0],
+                "output_price": prices[1],
+            }
+            tiers_list = result.setdefault(current_model, [])
+            exists = any(
+                t["max_k"] == max_k and t["input_price"] == prices[0]
+                for t in tiers_list
+            )
+            if not exists:
+                tiers_list.append(tier)
 
-            # Skip separator rows (e.g., |---|---|)
-            if all(re.match(r'^[-: ]*$', c) for c in cells if c):
-                continue
-
-            # Skip header rows
-            if any(kw in c for c in cells[:3] for kw in ('模型', 'Model', 'model', '模式', 'Mode')):
-                if not any('元' in c for c in cells):
-                    continue
-
-            first_cell = cells[0] if cells else ''
-
-            # Detect model ID in first cell
-            maybe_model = _clean_model_id(first_cell)
-            if maybe_model:
-                current_model = maybe_model
-
-            if not current_model:
-                continue
-
-            # Scan all cells for token range and price values
-            token_range: Optional[str] = None
-            prices: list[float] = []
-
-            for cell in cells:
-                if not cell:
-                    continue
-                if 'Token' in cell or '无阶梯' in cell:
-                    token_range = cell
-                elif '元' in cell:
-                    p = _parse_price(cell)
-                    if p is not None:
-                        prices.append(p)
-
-            if len(prices) >= 2:
-                max_k = _parse_max_k(token_range) if token_range else None
-                tier: dict = {
-                    "max_k": max_k,
-                    "input_price": prices[0],
-                    "output_price": prices[1],
-                }
-                tiers_list = result.setdefault(current_model, [])
-                # Avoid duplicates
-                exists = any(
-                    t["max_k"] == max_k and t["input_price"] == prices[0]
-                    for t in tiers_list
-                )
-                if not exists:
-                    tiers_list.append(tier)
-
-    # Sort tiers: bounded first (ascending max_k), unbounded last
     for model_id in result:
         result[model_id].sort(key=lambda t: (t["max_k"] is None, t["max_k"] or 0))
 
     return result
+
+
+def parse_cn_pricing_md(md_text: str) -> dict[str, list]:
+    """Parse Alibaba Cloud Bailian pricing Markdown.
+
+    Supports multiple formats:
+      1. Legacy: '## 中国内地' section heading → parse that section
+      2. New (2025+): per-model tables with '服务部署范围' column containing
+         '中国内地' / '华北2' etc. → filter rows by region column
+      3. Fallback: no region info at all → parse all rows (user copied
+         only the CN table)
+
+    Returns:
+        {model_id: [{"max_k": int|None, "input_price": float, "output_price": float}, ...]}
+    """
+    # Strategy 1: Legacy '## 中国内地' section
+    cn_positions = [m.start() for m in re.finditer(r'^## 中国内地', md_text, re.MULTILINE)]
+    if cn_positions:
+        all_h2 = [m.start() for m in re.finditer(r'^##[^#]', md_text, re.MULTILINE)]
+        all_rows: list[list[str]] = []
+        for cn_pos in cn_positions:
+            next_h2s = [p for p in all_h2 if p > cn_pos]
+            section_end = next_h2s[0] if next_h2s else len(md_text)
+            all_rows.extend(_extract_table_rows(md_text[cn_pos:section_end]))
+        return _parse_rows_to_pricing(all_rows)
+
+    # Strategy 2: Filter rows where a cell matches CN region keywords
+    all_rows = _extract_table_rows(md_text)
+    if not all_rows:
+        return {}
+
+    has_region_col = any(
+        any(_is_cn_region(c) or '美国' in c or '新加坡' in c or '德国' in c or '日本' in c
+            for c in row)
+        for row in all_rows[:20]
+    )
+
+    if has_region_col:
+        cn_rows = [row for row in all_rows if any(_is_cn_region(c) for c in row)]
+        if cn_rows:
+            return _parse_rows_to_pricing(cn_rows)
+
+    # Strategy 3: No region info — treat all rows as CN
+    return _parse_rows_to_pricing(all_rows)
 
 
 # ── Cost calculation ───────────────────────────────────────────────────────────

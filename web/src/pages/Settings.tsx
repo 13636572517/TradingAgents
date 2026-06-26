@@ -569,11 +569,11 @@ function PricingPanel() {
           <p className="text-xs text-gray-500">
             打开{" "}
             <span className="text-accent">阿里云百炼 → 帮助文档 → 模型价格表</span>，
-            选中"## 中国内地"区域的全部 Markdown 内容复制粘贴到下方：
+            选中价格表内容复制粘贴到下方（支持整页或单个模型的表格）：
           </p>
           <textarea
             className="w-full h-40 bg-bg border border-border rounded-md px-3 py-2 text-xs text-gray-300 font-mono focus:outline-none focus:border-accent resize-y"
-            placeholder={"## 中国内地\n\n| 模型 ID | 模式 | 单次请求的输入Token数 | 输入单价 | 输出单价 | 免费额度 |\n| --- | --- | --- | --- | --- | --- |\n| qwen-plus | 非思考 | 0<Token≤1M | 0.8元 | 2元 | ... |"}
+            placeholder={"| 模型 ID | 服务部署范围 | 模式 | 单次请求的输入Token数 | 输入单价（每百万Token） | 输出单价（每百万Token） |\n| --- | --- | --- | --- | --- | --- |\n| qwen-plus | 中国内地 | 非思考 | 0<Token≤1M | 0.8元 | 2元 |"}
             value={md}
             onChange={(e) => setMd(e.target.value)}
           />

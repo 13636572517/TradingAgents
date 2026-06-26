@@ -68,10 +68,7 @@ def import_pricing_md(payload: ImportMdPayload, db: Session = Depends(get_db)):
     if not parsed:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "No pricing data parsed. Ensure the text contains a '## 中国内地' "
-                "section with a pricing table."
-            ),
+            detail='未能解析到任何价格数据。请从阿里云百炼价格页面复制包含模型ID和"元"单价的表格内容。',
         )
 
     imported_ids: list[str] = []
