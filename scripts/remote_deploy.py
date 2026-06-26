@@ -134,8 +134,7 @@ def _rsync_and_build(client: paramiko.SSHClient) -> int:
     # Use paramiko SFTP to upload changed files
     sftp = client.open_sftp()
     upload_dirs = ["tradingagents", "server", "cli", "web", "scripts"]
-    upload_files = ["pyproject.toml", "Dockerfile.prod", "docker-compose.prod.yml",
-                    "manage_users.py", "deploy.sh"]
+    upload_files = ["pyproject.toml", "manage_users.py", "deploy.sh"]
 
     def _upload_tree(local_dir: str, remote_base: str):
         import os
@@ -166,14 +165,9 @@ def _rsync_and_build(client: paramiko.SSHClient) -> int:
             sftp.put(local, f"{REMOTE}/{f}")
             print(f"  uploaded {f}")
     sftp.close()
-    print("[*] Upload done. Running docker compose build + up...")
+    print("[*] Upload done. Running deploy.sh (systemd)...")
 
-    rc = run(client,
-             "cd /opt/tradingagents && "
-             "docker compose -f docker-compose.prod.yml build && "
-             "docker compose -f docker-compose.prod.yml up -d && "
-             "sleep 5 && docker compose -f docker-compose.prod.yml ps",
-             timeout=600)
+    rc = run(client, "cd /opt/tradingagents && bash deploy.sh", timeout=600)
     return rc
 
 
@@ -181,8 +175,8 @@ def check_logs(lines: int = 80):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(HOST, username=USER, password=SSH_PASSWORD, timeout=15)
-    run(client, f"docker compose -f /opt/tradingagents/docker-compose.prod.yml "
-                f"logs --no-color --tail={lines} server", timeout=30)
+    run(client, f"sudo journalctl -u tradingagents-server --no-pager -n {lines}",
+        timeout=30)
     client.close()
 
 

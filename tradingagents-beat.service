@@ -1,0 +1,17 @@
+[Unit]
+Description=TradingAgents Celery Beat Scheduler
+After=network.target redis-server.service
+
+[Service]
+User=admin
+WorkingDirectory=/opt/tradingagents
+EnvironmentFile=/opt/tradingagents/.env.prod
+ExecStart=/opt/tradingagents/venv/bin/celery \
+    -A server.celery_app beat \
+    --loglevel=info
+Restart=always
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

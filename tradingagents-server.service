@@ -1,0 +1,18 @@
+[Unit]
+Description=TradingAgents uvicorn server
+After=network.target mysql.service redis-server.service
+
+[Service]
+User=admin
+WorkingDirectory=/opt/tradingagents
+EnvironmentFile=/opt/tradingagents/.env.prod
+ExecStart=/opt/tradingagents/venv/bin/uvicorn server.main:app \
+    --host 127.0.0.1 \
+    --port 8001 \
+    --workers 2
+Restart=always
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
