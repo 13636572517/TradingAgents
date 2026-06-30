@@ -2,6 +2,9 @@
 import os
 from celery import Celery
 
+# Apply httpx patch BEFORE any httpx imports to handle non-ASCII headers gracefully
+from server.httpx_patch import _patched_normalize_header_value  # noqa: F401
+
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(
