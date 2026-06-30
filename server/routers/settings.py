@@ -89,6 +89,14 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         row.api_key = payload.api_key
     db.commit()
     db.refresh(row)
+
+    # Inject API key into current process environment so subsequent LLM calls
+    # can authenticate without requiring a service restart.
+    if row.api_key and row.provider:
+        env_var = _PROVIDER_ENV.get(row.provider)
+        if env_var:
+            os.environ[env_var] = row.api_key
+
     return _settings_out(row)
 
 

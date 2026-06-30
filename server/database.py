@@ -5,6 +5,11 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tradingagents.db")
 
+# Log which database is being used at startup (helps debug config issues)
+import logging
+_logging_logger = logging.getLogger(__name__)
+_logging_logger.info("DATABASE_URL configured as: %s", DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL)
+
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 _is_mysql = DATABASE_URL.startswith("mysql")
