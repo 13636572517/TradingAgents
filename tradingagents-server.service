@@ -6,6 +6,7 @@ After=network.target mysql.service redis-server.service
 User=admin
 WorkingDirectory=/opt/tradingagents
 EnvironmentFile=/opt/tradingagents/.env.prod
+Environment=PYTHONUTF8=1
 ExecStart=/opt/tradingagents/venv/bin/uvicorn server.main:app \
     --host 127.0.0.1 \
     --port 8001 \

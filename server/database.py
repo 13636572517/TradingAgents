@@ -8,6 +8,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tradingagents.db")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 _is_mysql = DATABASE_URL.startswith("mysql")
+# Ensure MySQL uses utf8mb4 charset to support Chinese characters and emoji
+if _is_mysql and "charset=" not in DATABASE_URL.lower():
+    sep = "&" if "?" in DATABASE_URL else "?"
+    DATABASE_URL = f"{DATABASE_URL}{sep}charset=utf8mb4"
+
 engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
