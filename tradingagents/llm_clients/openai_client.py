@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Optional
 
@@ -8,6 +9,8 @@ from .api_key_env import get_api_key_env
 from .base_client import BaseLLMClient, normalize_content
 from .capabilities import get_capabilities
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
@@ -177,6 +180,40 @@ def _resolve_provider_base_url(provider: str) -> Optional[str]:
     return _PROVIDER_BASE_URL.get(provider)
 
 
+def _try_read_api_key_from_db(provider: str) -> Optional[str]:
+    """Fallback: read API key from the database when the env var is empty.
+
+    This handles the edge case where on_startup couldn't hydrate the key
+    (e.g. MySQL was still starting when the server came up) or the env var
+    was cleared by a systemd EnvironmentFile with an empty value.
+    """
+    try:
+        # Use an inline import so the tradingagents library doesn't pull in
+        # server DB dependencies at import time.
+        from server.database import DATABASE_URL
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+
+        # Build a one-shot engine + session (lightweight standalone connection)
+        _engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            pool_recycle=900,
+            connect_args={} if DATABASE_URL.startswith("mysql") else {"check_same_thread": False},
+        )
+        with Session(_engine) as session:
+            from server.models import AppSettings
+            row = session.get(AppSettings, 1)
+            if (row and row.api_key
+                    and row.provider
+                    and row.provider.lower() == provider.lower()):
+                return row.api_key
+        _engine.dispose()
+    except Exception as exc:
+        logger.debug("_try_read_api_key_from_db: fallback read failed: %s", exc)
+    return None
+
+
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
 
@@ -209,13 +246,24 @@ class OpenAIClient(BaseLLMClient):
             api_key_env = get_api_key_env(self.provider)
             if api_key_env:
                 api_key = os.environ.get(api_key_env)
+                # Fallback: if env var is empty, try reading from MySQL/SQLite
+                # (handles the case where on_startup couldn't hydrate the key,
+                # e.g. MySQL was still starting).
+                if not api_key:
+                    api_key = _try_read_api_key_from_db(self.provider)
+                    if api_key:
+                        os.environ[api_key_env] = api_key
+                        logger.info(
+                            "get_llm: fallback restored %s from DB (provider=%s)",
+                            api_key_env, self.provider,
+                        )
                 if api_key:
                     llm_kwargs["api_key"] = api_key
                 else:
                     raise ValueError(
                         f"API key for provider '{self.provider}' is not set. "
                         f"Please set the {api_key_env} environment variable "
-                        f"(e.g. add {api_key_env}=your_key to your .env file)."
+                        f"or save the key via the Settings page."
                     )
             else:
                 llm_kwargs["api_key"] = "ollama"

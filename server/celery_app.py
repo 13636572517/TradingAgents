@@ -29,23 +29,45 @@ celery_app.conf.update(
 # ── Re-hydrate DB-stored API keys into process environment ─────────────────────
 
 def _hydrate_db_keys():
-    """Load TickFlow (and future) API keys from DB into env vars.
+    """Load TickFlow and LLM API keys from DB into env vars.
 
     Celery workers run in a separate process from the uvicorn server,
     so they don't inherit the server's startup event. We hydrate keys
-    here so screening tasks can authenticate with TickFlow.
+    here so screening tasks and LLM calls can authenticate.
     """
-    if "TICKFLOW_API_KEY" in os.environ and os.environ["TICKFLOW_API_KEY"]:
-        return  # already set (e.g. via docker-compose env_file)
+    import logging
+    _log = logging.getLogger(__name__)
     try:
         from server.database import SessionLocal
         from server.models import AppSettings
         with SessionLocal() as db:
             row = db.get(AppSettings, 1)
-            if row and row.tickflow_api_key:
-                os.environ["TICKFLOW_API_KEY"] = row.tickflow_api_key
-    except Exception:
-        pass  # non-critical; screening will degrade to akshare/joinquant
+            if row:
+                # TickFlow market-data key
+                if row.tickflow_api_key:
+                    os.environ["TICKFLOW_API_KEY"] = row.tickflow_api_key
+                    _log.info("celery: restored TICKFLOW_API_KEY from DB")
+                # LLM API key (DashScope / OpenAI / etc.)
+                if row.api_key and row.provider:
+                    _PROVIDER_ENV = {
+                        "qwen":       "DASHSCOPE_API_KEY",
+                        "qwen-cn":    "DASHSCOPE_CN_API_KEY",
+                        "openai":     "OPENAI_API_KEY",
+                        "anthropic":  "ANTHROPIC_API_KEY",
+                        "deepseek":   "DEEPSEEK_API_KEY",
+                        "glm":        "ZHIPU_API_KEY",
+                        "glm-cn":     "ZHIPU_CN_API_KEY",
+                        "google":     "GOOGLE_API_KEY",
+                        "xai":        "XAI_API_KEY",
+                        "minimax":    "MINIMAX_API_KEY",
+                        "minimax-cn": "MINIMAX_CN_API_KEY",
+                    }
+                    _env_var = _PROVIDER_ENV.get(row.provider)
+                    if _env_var:
+                        os.environ[_env_var] = row.api_key
+                        _log.info("celery: restored %s from DB (provider=%s)", _env_var, row.provider)
+    except Exception as exc:
+        _log.warning("celery: API key hydration failed: %s", exc)
 
 
 _hydrate_db_keys()

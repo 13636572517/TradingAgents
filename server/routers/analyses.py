@@ -1,4 +1,5 @@
 # server/routers/analyses.py
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -229,8 +230,12 @@ def delete_analysis(
     current_user: User = Depends(get_current_user),
 ):
     record = _get_owned(analysis_id, current_user, db)
+    ticker_info = f"{record.ticker} ({record.ticker_name})" if record.ticker_name else record.ticker
     db.delete(record)
+    db.flush()   # ensure the DELETE SQL is sent to MySQL before commit
     db.commit()
+    logger = logging.getLogger(__name__)
+    logger.info("deleted analysis %s [%s] by user %s", analysis_id, ticker_info, current_user.username)
 
 
 # ── Sharing ────────────────────────────────────────────────────────────────────
