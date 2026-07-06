@@ -97,7 +97,53 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
         if env_var:
             os.environ[env_var] = row.api_key
 
+    # Persist API key to .env.prod so it survives a full system restart.
+    # systemd's EnvironmentFile loads this on service start — this is the
+    # only reliable way to guarantee the key is available to uvicorn workers
+    # spawned via multiprocessing.spawn.
+    _persist_api_key_to_env_file(row)
+
     return _settings_out(row)
+
+
+def _persist_api_key_to_env_file(row: AppSettings) -> None:
+    """Write the current provider's API key into .env.prod for systemd reloads."""
+    if not row.api_key or not row.provider:
+        return
+    env_var = _PROVIDER_ENV.get(row.provider)
+    if not env_var:
+        return
+
+    # Determine .env.prod path — same file systemd's EnvironmentFile points to.
+    _env_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        ".env.prod",
+    )
+    if not os.path.exists(_env_path):
+        return  # not running from a dir that has .env.prod
+
+    try:
+        with open(_env_path, "r") as f:
+            lines = f.readlines()
+
+        updated = False
+        with open(_env_path, "w") as f:
+            for line in lines:
+                if line.startswith(env_var + "="):
+                    f.write(f"{env_var}={row.api_key}\n")
+                    updated = True
+                else:
+                    f.write(line)
+            if not updated:
+                f.write(f"{env_var}={row.api_key}\n")
+
+        import logging
+        logging.getLogger(__name__).info(
+            "Persisted %s to %s (len=%d)", env_var, _env_path, len(row.api_key),
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Failed to persist API key to %s", _env_path)
 
 
 # ── GET /api/settings/models?provider=qwen-cn ─────────────────────────────────

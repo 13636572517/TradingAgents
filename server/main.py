@@ -80,6 +80,13 @@ def _hydrate_api_keys_from_db(max_retries: int = 5, retry_delay: float = 3.0) ->
     from server.database import SessionLocal
     from server.models import AppSettings
 
+    # Use print() in addition to logger because journalctl may not capture
+    # Python logging at INFO level by default in uvicorn workers.
+    def _log(msg, *args):
+        formatted = msg % args if args else msg
+        print(f"[startup] {formatted}", flush=True)
+        logger.info(formatted)
+
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -89,54 +96,49 @@ def _hydrate_api_keys_from_db(max_retries: int = 5, retry_delay: float = 3.0) ->
                     # TickFlow market-data key
                     if _s.tickflow_api_key:
                         os.environ["TICKFLOW_API_KEY"] = _s.tickflow_api_key
-                        logger.info("startup: restored TICKFLOW_API_KEY from DB")
+                        _log("restored TICKFLOW_API_KEY from DB")
 
                     # LLM API key (DashScope / OpenAI / etc.)
                     if _s.api_key and _s.provider:
                         _env_var = _PROVIDER_ENV.get(_s.provider)
                         if _env_var:
                             os.environ[_env_var] = _s.api_key
-                            logger.info(
-                                "startup: restored %s from DB (provider=%s, key_len=%d)",
-                                _env_var, _s.provider, len(_s.api_key),
-                            )
+                            _log("restored %s from DB (provider=%s, key_len=%d)",
+                                 _env_var, _s.provider, len(_s.api_key))
                             return True
                         else:
-                            logger.warning(
-                                "startup: unknown provider '%s' — cannot map to env var",
-                                _s.provider,
-                            )
+                            _log("WARNING: unknown provider '%s' — cannot map to env var",
+                                 _s.provider)
                     else:
-                        logger.info("startup: no LLM API key in DB (provider=%s)", _s.provider if _s else "N/A")
+                        _log("no LLM API key in DB (provider=%s)", _s.provider if _s else "N/A")
                         return False
                 else:
-                    logger.info("startup: no AppSettings row found (id=1)")
+                    _log("no AppSettings row found (id=1)")
                     return False
             return True  # DB read succeeded even if no key set
         except Exception as exc:
             last_error = exc
             if attempt < max_retries:
-                logger.warning(
-                    "startup: DB read attempt %d/%d failed: %s — retrying in %.1fs",
-                    attempt, max_retries, exc, retry_delay,
-                )
+                _log("DB read attempt %d/%d failed: %s — retrying in %.1fs",
+                     attempt, max_retries, exc, retry_delay)
                 time.sleep(retry_delay)
             else:
-                logger.error(
-                    "startup: DB read failed after %d attempts: %s",
-                    max_retries, exc,
-                )
+                _log("ERROR: DB read failed after %d attempts: %s", max_retries, exc)
 
-    logger.error("startup: API key hydration FAILED — keys must be re-saved via settings UI. Last error: %s", last_error)
+    _log("ERROR: API key hydration FAILED — keys must be re-saved via settings UI. Last error: %s", last_error)
     return False
 
 
 @app.on_event("startup")
 def on_startup():
+    print("[startup] on_startup BEGIN", flush=True)
     init_db()
+    print("[startup] init_db done, hydrating keys...", flush=True)
     # Re-hydrate API keys from the DB into the process env so clients can
     # authenticate after a restart. Retries in case MySQL is still starting.
     _hydrate_api_keys_from_db()
+    print("[startup] key hydration done, DASHSCOPE_CN_API_KEY=" +
+          ("SET" if os.environ.get("DASHSCOPE_CN_API_KEY") else "NOT SET"), flush=True)
 
     # Pre-warm the stock search cache in a background thread so the first
     # search request returns instantly instead of waiting 8+ seconds.
