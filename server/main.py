@@ -129,6 +129,55 @@ def _hydrate_api_keys_from_db(max_retries: int = 5, retry_delay: float = 3.0) ->
     return False
 
 
+def _ensure_env_file_has_api_key():
+    """Sync .env.prod with DB: ensure the API key line is present and matches DB.
+
+    Prevents the ``DASHSCOPE_CN_API_KEY=`` (empty) line from overriding a
+    correct in-memory key after a service restart, which would cause
+    DashScope to return ``400 InvalidParameter: Range of input length [1,8192]``.
+    """
+    from server.database import SessionLocal
+    from server.models import AppSettings
+
+    _env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             ".env.prod")
+    if not os.path.exists(_env_path):
+        return
+    try:
+        with SessionLocal() as _db:
+            _s = _db.get(AppSettings, 1)
+            if not _s or not _s.api_key or not _s.provider:
+                return
+            env_var = _PROVIDER_ENV.get(_s.provider)
+            if not env_var:
+                return
+            db_key = _s.api_key
+
+        with open(_env_path, "r") as f:
+            _lines = f.readlines()
+
+        needs_write = False
+        found = False
+        for i, line in enumerate(_lines):
+            if line.startswith(env_var + "="):
+                found = True
+                val = line.split("=", 1)[1].rstrip("\n").strip('"').strip("'")
+                if val != db_key:
+                    _lines[i] = f'{env_var}="{db_key}"\n'
+                    needs_write = True
+                break
+        if not found:
+            _lines.append(f'{env_var}="{db_key}"\n')
+            needs_write = True
+
+        if needs_write:
+            with open(_env_path, "w") as f:
+                f.writelines(_lines)
+            print(f"[startup] synced {env_var} to .env.prod (len={len(db_key)})", flush=True)
+    except Exception as exc:
+        print(f"[startup] WARNING: failed to sync .env.prod: {exc}", flush=True)
+
+
 @app.on_event("startup")
 def on_startup():
     print("[startup] on_startup BEGIN", flush=True)
@@ -137,6 +186,9 @@ def on_startup():
     # Re-hydrate API keys from the DB into the process env so clients can
     # authenticate after a restart. Retries in case MySQL is still starting.
     _hydrate_api_keys_from_db()
+    # Ensure .env.prod is in sync with DB, so a service restart doesn't
+    # pick up a stale empty line and wipe the restored API key.
+    _ensure_env_file_has_api_key()
     print("[startup] key hydration done, DASHSCOPE_CN_API_KEY=" +
           ("SET" if os.environ.get("DASHSCOPE_CN_API_KEY") else "NOT SET"), flush=True)
 

@@ -130,12 +130,12 @@ def _persist_api_key_to_env_file(row: AppSettings) -> None:
         with open(_env_path, "w") as f:
             for line in lines:
                 if line.startswith(env_var + "="):
-                    f.write(f"{env_var}={row.api_key}\n")
+                    f.write(f'{env_var}="{row.api_key}"\n')
                     updated = True
                 else:
                     f.write(line)
             if not updated:
-                f.write(f"{env_var}={row.api_key}\n")
+                f.write(f'{env_var}="{row.api_key}"\n')
 
         import logging
         logging.getLogger(__name__).info(
