@@ -725,6 +725,38 @@ def test_tf_connection(api_key: Optional[str] = None) -> dict:
 test_tickflow_connection = test_tf_connection
 
 
+# ── Circuit breaker / health cache ─────────────────────────────────────────────
+
+_tf_health_cache: dict = {"ok": None, "checked_at": 0.0, "error": ""}
+_TF_HEALTH_CACHE_TTL = 300  # 5 minutes
+
+
+def tickflow_available(force_refresh: bool = False) -> tuple[bool, str]:
+    """Check whether TickFlow API is currently reachable.
+
+    Uses a 5-minute cache to avoid hammering the API on every task/subtask.
+    Returns (is_available: bool, reason: str).
+
+    Call this BEFORE any heavy TickFlow-dependent task (nightly_cache_backfill,
+    full_market_backfill, run_screening_task) to short-circuit early and avoid
+    flooding a dead endpoint with retries.
+    """
+    now = time.time()
+    if not force_refresh and _tf_health_cache["checked_at"] > 0:
+        age = now - _tf_health_cache["checked_at"]
+        if age < _TF_HEALTH_CACHE_TTL:
+            return _tf_health_cache["ok"], _tf_health_cache["error"] or "cached"
+
+    result = test_tf_connection()
+    _tf_health_cache["checked_at"] = now
+    _tf_health_cache["ok"] = result.get("connected", False)
+    _tf_health_cache["error"] = result.get("error", "")
+
+    if _tf_health_cache["ok"]:
+        return True, f"ok (latency={result.get('latency_ms', '?')}ms)"
+    return False, _tf_health_cache["error"]
+
+
 # ── Batch helpers for sector_data.py ───────────────────────────────────────────
 #
 # NOTE on symbol formats: ``tf_instruments`` and ``tf_financials_valuation`` take

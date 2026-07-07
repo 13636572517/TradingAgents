@@ -609,6 +609,28 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
     from server.models import ScreeningRun, ScreeningCandidate
     from server.screener import run_screening
 
+    # Pre-flight: check TickFlow before launching the heavy screening pipeline.
+    # The screener needs TickFlow for board PE/PB percentiles — without it the
+    # results degrade to sparse AkShare/JoinQuant data that may mislead users.
+    from tradingagents.dataflows.tickflow_data import tickflow_available
+    tf_ok, tf_reason = tickflow_available()
+    if not tf_ok:
+        logger.warning("run_screening_task: TickFlow unavailable (%s) — aborting run %s", tf_reason, run_id)
+        db = SessionLocal()
+        try:
+            run = db.get(ScreeningRun, run_id)
+            if run and run.status == "running":
+                run.status = "failed"
+                run.error = f"TickFlow 数据源不可用（{tf_reason}），请稍后重试。"
+                run.completed_at = datetime.utcnow()
+                db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+        return
+    logger.info("run_screening_task: TickFlow OK (%s), starting run %s...", tf_reason, run_id)
+
     db = SessionLocal()
     run = None
     try:
@@ -790,6 +812,16 @@ def nightly_cache_backfill(self):
     time users open the detail page or the next screener runs in the morning,
     TickFlow round-trips are already paid for.
     """
+    # Pre-flight: skip if TickFlow is down to avoid flooding the dead endpoint
+    # with thousands of retries. The cache is 5 min TTL, so a transient glitch
+    # will self-heal on the next minute's cron window.
+    from tradingagents.dataflows.tickflow_data import tickflow_available
+    tf_ok, tf_reason = tickflow_available()
+    if not tf_ok:
+        logger.warning("nightly_cache_backfill: TickFlow unavailable (%s) — skipping", tf_reason)
+        return
+    logger.info("nightly_cache_backfill: TickFlow OK (%s), starting...", tf_reason)
+
     from tradingagents.dataflows.tickflow_data import (
         _to_tf_code, _load_ohlcv_cached, tf_financials_valuation,
     )
@@ -847,6 +879,16 @@ def nightly_cache_backfill(self):
 @celery_app.task(bind=True, name="server.tasks.full_market_backfill")
 def full_market_backfill(self):
     """One-time backfill of ~10 years of OHLCV + financial-statement history
+
+    Most expensive TickFlow task — pulls hundreds of thousands of OHLCV bars
+    and financial statement rows. Skip entirely if TickFlow is down.
+    """
+    from tradingagents.dataflows.tickflow_data import tickflow_available
+    tf_ok, tf_reason = tickflow_available()
+    if not tf_ok:
+        logger.warning("full_market_backfill: TickFlow unavailable (%s) — skipping", tf_reason)
+        return
+    logger.info("full_market_backfill: TickFlow OK (%s), starting...", tf_reason)
     for the entire CN A-share universe.
 
     Not on the beat schedule — trigger manually (e.g. via
