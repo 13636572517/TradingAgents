@@ -86,7 +86,11 @@ def save_settings(payload: SettingsUpdate, db: Session = Depends(get_db)):
     row.output_cost_per_million = payload.output_cost_per_million
     row.updated_at = datetime.utcnow()
     if payload.api_key:
-        row.api_key = payload.api_key
+        # Guard: don't overwrite the real key with a masked value that the
+        # frontend may inadvertently re-submit (e.g. "sk-449...06bb").
+        looks_masked = "..." in payload.api_key and len(payload.api_key) <= 15
+        if not looks_masked:
+            row.api_key = payload.api_key
     db.commit()
     db.refresh(row)
 
