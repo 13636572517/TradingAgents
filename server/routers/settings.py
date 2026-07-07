@@ -36,7 +36,7 @@ def _mask_key(key: Optional[str]) -> Optional[str]:
         return None
     if len(key) <= 10:
         return key[:2] + "***"
-    return f"{key[:6]}…{key[-4:]}"
+    return f"{key[:6]}...{key[-4:]}"
 
 
 def _settings_out(row: AppSettings) -> SettingsOut:
@@ -446,7 +446,7 @@ def _mask_key(key: Optional[str]) -> Optional[str]:
         return None
     if len(key) <= 10:
         return key[:2] + "***"
-    return f"{key[:6]}…{key[-4:]}"
+    return f"{key[:6]}...{key[-4:]}"
 
 
 @router.get("/tickflow-key", response_model=TickflowKeyOut)
