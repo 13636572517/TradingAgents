@@ -5,6 +5,14 @@
 # 阈值: 总 CPU 使用率 > 70%（即 idle < 30%）
 # 动作: 停掉最高 CPU 消费进程所属的 systemd 服务
 # 白名单: 永远不会被停掉的关键服务
+#
+# 优化版（相比旧版）：
+#   - 不再 fork `top`（旧版 top -b -n2 -d0.5 会挂起 ~1 秒并消耗排序开销），
+#     改为直接读 /proc/stat 两次采样，间隔仅 0.1 秒。
+#   - `ps` 定位肇事进程仅在确认动手（连续 5 次超标）时才调用，
+#     正常观察路径零额外进程开销。
+#   - 定位 systemd 单元优先从 /proc/$pid/cgroup 解析，去掉 `systemctl status` fork。
+#   正常路径：约 0.2 秒墙钟 + 几乎为零的 CPU（仅两次读 /proc/stat）。
 
 set -euo pipefail
 
@@ -12,6 +20,7 @@ set -euo pipefail
 CPU_THRESHOLD=70          # CPU 使用率超过此值则触发
 CHECK_COUNT_FILE="/tmp/cpu_watchdog_count"     # 连续超阈值计数
 MAX_CHECKS=5              # 连续 5 次（5 分钟）超阈值才动手，避免误杀短暂峰值
+SAMPLE_SLEEP=0.1          # /proc/stat 两次采样间隔（秒）
 LOG_TAG="cpu-watchdog"
 
 # 白名单：这些服务永远不会被停掉
@@ -29,21 +38,32 @@ WHITELIST_SERVICES=(
 )
 
 # ── 日志 ────────────────────────────────────────────────────────────────────────
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | systemd-cat -t "$LOG_TAG" -p info; }
+log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | systemd-cat -t "$LOG_TAG" -p info; }
 warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | systemd-cat -t "$LOG_TAG" -p warning; }
 
-# ── 获取当前 CPU 使用率 ────────────────────────────────────────────────────────
+# ── 获取当前 CPU 使用率（100 - idle）────────────────────────────────────────────
 get_cpu_usage() {
-    # 使用 top 快照获取 us+sy 的总和
-    top -b -n2 -d0.5 2>/dev/null \
-        | grep -E '^%Cpu' \
-        | tail -1 \
-        | awk '{
-            # 格式: %Cpu(s):  us,  sy,  ni,  id,  wa,  hi,  si,  st
-            us = $2; gsub(/[^0-9.]/, "", us)
-            sy = $4; gsub(/[^0-9.]/, "", sy)
-            print us + sy
-        }'
+    local line1 line2
+    line1=$(grep -m1 '^cpu ' /proc/stat) || { echo 0; return; }
+    sleep "$SAMPLE_SLEEP"
+    line2=$(grep -m1 '^cpu ' /proc/stat) || { echo 0; return; }
+
+    local f1 f2
+    f1=($line1)   # cpu user nice system idle iowait irq softirq steal guest guest_nice
+    f2=($line2)
+
+    local idle1=$(( ${f1[4]:-0} + ${f1[5]:-0} ))
+    local idle2=$(( ${f2[4]:-0} + ${f2[5]:-0} ))
+
+    local total1=0 total2=0 i
+    for ((i = 1; i < ${#f1[@]}; i++)); do total1=$((total1 + ${f1[i]:-0})); done
+    for ((i = 1; i < ${#f2[@]}; i++)); do total2=$((total2 + ${f2[i]:-0})); done
+
+    local dtotal=$((total2 - total1)) didle=$((idle2 - idle1))
+    if [ "$dtotal" -le 0 ]; then echo 0; return; fi
+
+    local usage=$(( (100 * (dtotal - didle)) / dtotal ))
+    echo "$usage"
 }
 
 # ── 检查进程是否属于白名单服务 ────────────────────────────────────────────────
@@ -68,31 +88,21 @@ is_whitelisted() {
 }
 
 # ── 找出最高 CPU 的进程及其所属 systemd 服务 ──────────────────────────────────
+# 仅在确认动手时调用（每分钟最多一次），开销可忽略。
 find_culprit_service() {
-    # 获取 CPU 最高的非内核进程（跳过 kworker, kthread 等）
     local top_pid top_pname top_cpu
     read -r top_pid top_cpu top_pname < <(
-        ps aux --sort=-pcpu --no-headers 2>/dev/null \
-            | awk '!/^root.*\[.*\]/ && $3 > 10 {print $2, $3, $11}' \
-            | head -1
+        ps -eo pid=,pcpu=,comm= --sort=-pcpu --no-headers 2>/dev/null \
+            | awk '$2 > 10 {print $1, $2, $3; exit}'
     )
 
     if [ -z "$top_pid" ]; then
         return 1
     fi
 
-    # 查找该 PID 所属的 systemd 单元
+    # 优先从 cgroup 解析 systemd 单元（避免 fork systemctl status）
     local unit
-    unit=$(systemctl status "$top_pid" 2>/dev/null \
-        | grep -oP '(?<=[/\s])[^/\s]+\.service' \
-        | head -1 || true)
-
-    if [ -z "$unit" ]; then
-        # 尝试通过 cgroup 查找
-        unit=$(cat "/proc/$top_pid/cgroup" 2>/dev/null \
-            | grep -oP '[^/]+\.service' \
-            | head -1 || true)
-    fi
+    unit=$(grep -oP '[^/]+\.service' "/proc/$top_pid/cgroup" 2>/dev/null | head -1 || true)
 
     echo "$top_pid" "$top_cpu" "$top_pname" "$unit"
 }
@@ -118,7 +128,7 @@ if [ "$count" -lt "$MAX_CHECKS" ]; then
     exit 0
 fi
 
-# 连续超阈值达到上限 — 找出肇事者
+# 连续超阈值达到上限 — 找出肇事者（仅此处调用 ps）
 read -r culprit_pid culprit_cpu culprit_name culprit_unit < <(find_culprit_service || echo "" "" "" "")
 
 if [ -z "$culprit_pid" ]; then
