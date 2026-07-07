@@ -87,7 +87,7 @@ _hydrate_db_keys()
 # Celery workers can be SIGKILLed mid-task (deploys, OOM, container restarts).
 # Any ScreeningRun / Analysis row pinned at status='running' before the kill is
 # now orphaned — no worker will ever complete it. We sweep on worker_ready so
-# the frontend's polling UI doesn't show a permanent "进行中…" spinner.
+# the frontend's polling UI doesn't show a permanent "进行中..." spinner.
 #
 # Threshold: older than 30 minutes. A real in-flight task on another worker
 # would normally finish within that window; anything older is almost certainly

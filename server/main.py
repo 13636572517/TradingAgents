@@ -211,7 +211,7 @@ if _dist.exists():
     from fastapi.staticfiles import StaticFiles
 
     # SPA catch-all: paths with no file extension get index.html (client-side routing).
-    # Paths with an extension (*.png, *.js, *.css …) are handled by StaticFiles below.
+    # Paths with an extension (*.png, *.js, *.css ...) are handled by StaticFiles below.
     # This must be registered BEFORE the StaticFiles mount so FastAPI sees it first.
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str) -> Response:

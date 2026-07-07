@@ -88,7 +88,7 @@ class AnalysisStrategy(Base):
     # AI extraction metadata
     extraction_method  = Column(String(10), default="regex")   # regex / ai
     confidence         = Column(String(10))                    # high / medium / low
-    stop_loss_basis    = Column(String(50))                    # 绝对价格/百分比换算/均线支撑/…
+    stop_loss_basis    = Column(String(50))                    # 绝对价格/百分比换算/均线支撑/...
     target_price_basis = Column(String(50))
     extraction_note    = Column(Text)                          # AI explanation
     created_at      = Column(DateTime,   default=datetime.utcnow)

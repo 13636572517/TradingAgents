@@ -16,11 +16,11 @@ _STAGE_PROGRESS = {
 }
 
 _STAGE_LABEL = {
-    "pending":  "等待开始…",
-    "analysts": "分析师团队运行中…",
-    "debate":   "多空辩论进行中…",
-    "risk":     "风险评估进行中…",
-    "decision": "最终决策生成中…",
+    "pending":  "等待开始...",
+    "analysts": "分析师团队运行中...",
+    "debate":   "多空辩论进行中...",
+    "risk":     "风险评估进行中...",
+    "decision": "最终决策生成中...",
     "complete": "分析完成",
 }
 

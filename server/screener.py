@@ -246,27 +246,27 @@ def run_screening(db: Session, params: Optional[dict] = None,
     run_date = datetime.now().strftime("%Y-%m-%d")
 
     # Step 1: market snapshot
-    _p("Step 1/4 — 获取全市场行情快照…")
+    _p("Step 1/4 — 获取全市场行情快照...")
     spot = sd.get_market_spot()
     if not spot:
         raise RuntimeError("全市场行情快照获取失败")
     _p(f"Step 1/4 — 行情快照获取完成（{len(spot)} 只股票）")
 
     # Step 2: scan boards for BOTH levels
-    _p("Step 2/4 — 扫描 SW1 申万一级行业（~31个）…")
+    _p("Step 2/4 — 扫描 SW1 申万一级行业（~31个）...")
     sw1_boards = compute_board_valuations(spot, level=1)
     annotate_boards(db, run_date, sw1_boards, p)
     persist_snapshots(db, run_date, sw1_boards)
     _p(f"Step 2/4 — SW1 扫描完成，{len(sw1_boards)} 个板块")
 
-    _p("Step 3/4 — 扫描 SW2 申万二级行业（~130个）…")
+    _p("Step 3/4 — 扫描 SW2 申万二级行业（~130个）...")
     sw2_boards = compute_board_valuations(spot, level=2)
     annotate_boards(db, run_date, sw2_boards, p)
     persist_snapshots(db, run_date, sw2_boards)
     _p(f"Step 3/4 — SW2 扫描完成，{len(sw2_boards)} 个板块")
 
     # Step 4: score leaders for ALL boards (both levels)
-    _p("Step 4/4 — 计算各板块龙头评分…")
+    _p("Step 4/4 — 计算各板块龙头评分...")
     roe_map = sd.get_roe_map()
     flow_map = sd.get_moneyflow_map()
 

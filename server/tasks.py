@@ -112,11 +112,11 @@ def _detect_progress(state: dict, record: Analysis):
 
     # Build a human-readable detail string
     if new_stage == "decision":
-        detail = "组合经理正在生成最终决策…"
+        detail = "组合经理正在生成最终决策..."
     elif new_stage == "risk":
-        detail = "风险评估团队讨论中…"
+        detail = "风险评估团队讨论中..."
     elif new_stage == "debate":
-        detail = "多空辩论进行中…"
+        detail = "多空辩论进行中..."
     else:
         # Still in analysts stage — show per-analyst progress
         done = [lbl for fld, lbl in _ANALYST_FIELDS.items() if state.get(fld)]
@@ -126,7 +126,7 @@ def _detect_progress(state: dict, record: Analysis):
         if done:
             detail = f"分析师进度 {len(done)}/4：已完成 {', '.join(done)}"
         else:
-            detail = "分析师团队数据采集中…"
+            detail = "分析师团队数据采集中..."
 
     return new_stage, detail
 
@@ -192,7 +192,7 @@ def run_analysis(self, analysis_id: str):
             logger.error("run_analysis: analysis %s not found", analysis_id)
             return
 
-        _update_progress(db, record, stage="analysts", detail="分析师团队数据采集中…")
+        _update_progress(db, record, stage="analysts", detail="分析师团队数据采集中...")
 
         from tradingagents.graph.trading_graph import TradingAgentsGraph
         from tradingagents.default_config import DEFAULT_CONFIG
@@ -362,7 +362,7 @@ def rerun_stage(self, analysis_id: str, stage: str):
 
         record.status = "running"
         record.stage = "debate" if not is_analyst_stage else "analysts"
-        record.stage_detail = f"正在重新分析: {label}…"
+        record.stage_detail = f"正在重新分析: {label}..."
         record.celery_task_id = self.request.id
         db.commit()
 
@@ -662,7 +662,7 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             db.commit()
             logger.info("[screening %s] %s", run_id, msg)
 
-        _progress("正在获取全市场行情快照（TickFlow → AkShare → JoinQuant）…")
+        _progress("正在获取全市场行情快照（TickFlow → AkShare → JoinQuant）...")
         try:
             result = run_screening(db, params=run.params or None, progress=_progress)
         except Exception as e:
@@ -673,7 +673,7 @@ def run_screening_task(self, run_id: str, auto_analyze: bool = False,
             db.commit()
             return
 
-        _progress("正在持久化候选股并更新筛选记录…")
+        _progress("正在持久化候选股并更新筛选记录...")
         candidates = result["candidates"]
         # Persist candidates, ranked globally by score for auto-analysis ordering
         candidates_sorted = sorted(candidates, key=lambda c: c.get("score", 0), reverse=True)

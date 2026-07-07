@@ -139,7 +139,7 @@ def rerun_stage_endpoint(
 
     record.status = "pending"
     record.stage = "pending"
-    record.stage_detail = "等待重新分析…"
+    record.stage_detail = "等待重新分析..."
     record.error = None
     db.commit()
     db.refresh(record)
