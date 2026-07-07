@@ -880,23 +880,23 @@ def nightly_cache_backfill(self):
 def full_market_backfill(self):
     """One-time backfill of ~10 years of OHLCV + financial-statement history
 
-    Most expensive TickFlow task — pulls hundreds of thousands of OHLCV bars
+    Most expensive TickFlow task - pulls hundreds of thousands of OHLCV bars
     and financial statement rows. Skip entirely if TickFlow is down.
-    """
-    from tradingagents.dataflows.tickflow_data import tickflow_available
-    tf_ok, tf_reason = tickflow_available()
-    if not tf_ok:
-        logger.warning("full_market_backfill: TickFlow unavailable (%s) — skipping", tf_reason)
-        return
-    logger.info("full_market_backfill: TickFlow OK (%s), starting...", tf_reason)
+
     for the entire CN A-share universe.
 
-    Not on the beat schedule — trigger manually (e.g. via
+    Not on the beat schedule - trigger manually (e.g. via
     ``full_market_backfill.delay()`` from a shell) during off-peak hours.
     At ~28 kline batches (200 symbols/req) + ~220 financial batches
     (100 symbols/req x4 statements) this is well within TickFlow Expert's
     120/min limits and should complete in a few minutes.
     """
+    from tradingagents.dataflows.tickflow_data import tickflow_available
+    tf_ok, tf_reason = tickflow_available()
+    if not tf_ok:
+        logger.warning("full_market_backfill: TickFlow unavailable (%s) - skipping", tf_reason)
+        return
+    logger.info("full_market_backfill: TickFlow OK (%s), starting...", tf_reason)
     from tradingagents.dataflows.tickflow_data import (
         tf_universe_symbols, tf_batch_klines_history, tf_financials_full_history,
     )
