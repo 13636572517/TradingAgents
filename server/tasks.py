@@ -554,6 +554,9 @@ def launch_analysis(db, ticker: str, owner_id=None, depth: int = 1,
     """
     from server.models import AppSettings
 
+    if owner_id is None:
+        owner_id = 1   # fallback: system user (admin), so owner_id is never NULL
+
     settings = db.get(AppSettings, 1)
     llm_config = {
         "provider":    settings.provider    if settings else "openai",
@@ -791,7 +794,7 @@ def scheduled_daily_screening(self):
             status="running",
             trigger="scheduled",
             params=None,
-            owner_id=None,
+            owner_id=1,   # system user (admin), so scheduled runs are owned
         )
         db.add(run)
         db.commit()
