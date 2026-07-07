@@ -13,7 +13,7 @@ if [ -z "${_DEPLOY_RELOADED:-}" ]; then
 fi
 
 echo "==> [2/5] 同步 systemd service 文件..."
-SERVICES=(tradingagents-server tradingagents-celery tradingagents-beat)
+SERVICES=(tradingagents-server tradingagents-celery tradingagents-celery-heavy tradingagents-beat)
 CHANGED=0
 for svc in "${SERVICES[@]}"; do
     if ! diff -q "$APP_DIR/${svc}.service" "/etc/systemd/system/${svc}.service" &>/dev/null; then
@@ -53,9 +53,9 @@ fi
 echo "    ✓ 前端构建完成，dist/index.html 已生成"
 
 echo "==> [5/5] 重启 systemd 服务..."
-sudo systemctl restart tradingagents-server tradingagents-celery tradingagents-beat
+sudo systemctl restart tradingagents-server tradingagents-celery tradingagents-celery-heavy tradingagents-beat
 sleep 3
-sudo systemctl is-active tradingagents-server tradingagents-celery tradingagents-beat
+sudo systemctl is-active tradingagents-server tradingagents-celery tradingagents-celery-heavy tradingagents-beat
 
 echo ""
 echo "==> 部署完成！访问 https://trading.yusuan.xyz"

@@ -25,6 +25,15 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
 )
 
+# Route heavy / batch tasks to a dedicated "heavy" queue so they never starve
+# interactive user tasks (run_analysis / run_screening_task) on the main
+# "celery" queue. A separate worker consumes the "heavy" queue.
+celery_app.conf.task_routes = {
+    "server.tasks.nightly_cache_backfill": {"queue": "heavy"},
+    "server.tasks.full_market_backfill": {"queue": "heavy"},
+    "server.tasks.scheduled_daily_screening": {"queue": "heavy"},
+}
+
 
 # ── Re-hydrate DB-stored API keys into process environment ─────────────────────
 

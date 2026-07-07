@@ -1,5 +1,5 @@
 [Unit]
-Description=TradingAgents Celery Worker
+Description=TradingAgents Celery Heavy Worker (batch / backfill tasks)
 After=network.target redis-server.service
 
 [Service]
@@ -10,8 +10,8 @@ Environment=PYTHONUTF8=1
 ExecStart=/opt/tradingagents/venv/bin/celery \
     -A server.celery_app worker \
     --loglevel=info \
-    --concurrency=6 \
-    --queues=celery
+    --concurrency=1 \
+    --queues=heavy
 Restart=always
 StandardOutput=journal
 StandardError=journal
