@@ -31,7 +31,26 @@ source venv/bin/activate
 pip install -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -q -e .
 
 echo "==> [4/5] 构建前端静态文件..."
+
+# 保护①：源码入口 index.html 必须存在，缺失则从 git 恢复（避免 vite build 因
+#           UNRESOLVED_ENTRY 失败、只产出 PWA 的 sw.js 而上线一个坏前端）
+if [ ! -f web/index.html ]; then
+    echo "    ⚠ web/index.html 缺失，尝试从 git 恢复..."
+    git checkout -- web/index.html 2>/dev/null || true
+fi
+if [ ! -f web/index.html ]; then
+    echo "    ✗ 错误: web/index.html 仍然缺失，无法构建前端" >&2
+    exit 1
+fi
+
 cd web && npm ci --prefer-offline --silent && npm run build --silent && cd ..
+
+# 保护②：构建后必须产出 dist/index.html，否则视为构建失败并中止部署
+if [ ! -f web/dist/index.html ]; then
+    echo "    ✗ 错误: 构建未产出 web/dist/index.html（vite build 很可能失败），中止部署以避免上线坏前端" >&2
+    exit 1
+fi
+echo "    ✓ 前端构建完成，dist/index.html 已生成"
 
 echo "==> [5/5] 重启 systemd 服务..."
 sudo systemctl restart tradingagents-server tradingagents-celery tradingagents-beat
